@@ -43,7 +43,8 @@ import {
   Database,
   RefreshCw,
   Wifi,
-  Signal
+  Signal,
+  Trash2
 } from 'lucide-react';
 import { 
   INITIAL_CASES, 
@@ -142,6 +143,18 @@ export default function App() {
 
   // Field worker digital signature
   const healthWorkerName = "K. Mensah";
+
+  // State for tracking active case destruction/deletion confirmation safely inside an iframe
+  const [caseToDelete, setCaseToDelete] = useState<CaseRecord | null>(null);
+
+  const deleteCaseRecord = (recordId: string) => {
+    const updated = cases.filter(item => item.id !== recordId);
+    syncCasesToStorage(updated);
+    if (selectedDetailsCase?.id === recordId) {
+      setSelectedDetailsCase(null);
+    }
+    setCaseToDelete(null);
+  };
 
   // Database cloud sync and periodic checking state
   const [dbStatus, setDbStatus] = useState<'online' | 'offline'>('online');
@@ -1253,7 +1266,7 @@ export default function App() {
           <div className="flex-1 flex flex-col md:flex-row">
             
             {/* SIDE NAVIGATIONBAR PROGRESS COLUMN */}
-            <aside className="w-full md:w-64 bg-[#f1f4f6] md:border-r border-[#bccac1] py-6 px-4 flex flex-col md:min-h-[calc(100vh-3.5rem)]">
+            <aside className="w-full md:w-64 bg-[#f1f4f6] md:border-r border-[#bccac1] py-3 md:py-6 px-4 flex flex-col md:min-h-[calc(100vh-3.5rem)]">
               <div className="mb-6 hidden md:block">
                 <h2 className="font-display font-extrabold text-base text-[#181c1e]">Assessment Progress</h2>
                 <p className="text-xs text-[#3d4943] mt-0.5">Community Workflow</p>
@@ -1926,7 +1939,8 @@ export default function App() {
 
               {/* Patient Cases table grid */}
               <div className="bg-white border border-[#bccac1] rounded-2xl overflow-hidden shadow-sm">
-                <div className="overflow-x-auto scrollbar-none">
+                {/* Desktop View Table */}
+                <div className="hidden md:block overflow-x-auto scrollbar-none">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-[#f1f4f6] text-[#3d4943] text-xs font-bold border-b border-[#bccac1]">
@@ -1996,14 +2010,24 @@ export default function App() {
                                     downloadPdfRecord(item);
                                   }}
                                   title="Download Full Clinical PDF"
-                                  className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-emerald-200"
+                                  className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-emerald-200 cursor-pointer"
                                 >
                                   <Download className="w-4.5 h-4.5" />
                                 </button>
                                 <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCaseToDelete(item);
+                                  }}
+                                  title="Delete Case Record"
+                                  className="text-rose-600 hover:bg-rose-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
+                                >
+                                  <Trash2 className="w-4.5 h-4.5" />
+                                </button>
+                                <button 
                                   onClick={() => setSelectedDetailsCase(item)}
                                   title="View Case Details"
-                                  className="text-[#0077b6] hover:bg-[#f0f9ff] p-1.5 rounded-full transition-colors border border-transparent hover:border-[#bccac1]"
+                                  className="text-[#0077b6] hover:bg-[#f0f9ff] p-1.5 rounded-full transition-colors border border-transparent hover:border-[#bccac1] cursor-pointer"
                                 >
                                   <ChevronRight className="w-4.5 h-4.5" />
                                 </button>
@@ -2020,6 +2044,102 @@ export default function App() {
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile View Roster Card List (Optimized for Mobile Screens) */}
+                <div className="block md:hidden divide-y divide-[#ebeef0]">
+                  {processedCases.length > 0 ? (
+                    processedCases.map((item) => (
+                      <div 
+                        key={item.id}
+                        onClick={() => setSelectedDetailsCase(item)}
+                        className="p-4 hover:bg-[#f1f4f6] transition-colors cursor-pointer space-y-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-[#d6e0f6] text-[#121c2c] flex items-center justify-center font-bold font-display select-none shrink-0">
+                              {item.patient.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm text-[#181c1e] truncate">
+                                {item.patient.name}
+                              </p>
+                              <p className="text-[10px] text-[#3d4943] font-mono leading-none">
+                                REF: {item.id}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`w-2 h-2 rounded-full ${
+                              item.finding?.urgency === 'High' 
+                                ? 'bg-[#ba1a1a]' 
+                                : item.finding?.urgency === 'Moderate' 
+                                ? 'bg-[#e65100]' 
+                                : 'bg-[#2e7d32]'
+                            }`} />
+                            <span className={`font-bold text-xs ${
+                              item.finding?.urgency === 'High' 
+                                ? 'text-[#ba1a1a]' 
+                                : item.finding?.urgency === 'Moderate' 
+                                ? 'text-[#e65100]' 
+                                : 'text-[#2e7d32]'
+                            }`}>
+                              {item.finding?.urgency || 'Low'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-end text-xs pt-1">
+                          <div className="space-y-1.5 min-w-0">
+                            <p className="text-[10px] text-[#3d4943]">
+                              Date: <strong className="text-slate-800 font-semibold">{item.date}</strong>
+                            </p>
+                            <div className="truncate">
+                              <span className="inline-block px-2 py-0.5 rounded bg-[#ebeef0] text-[#181c1e] text-[10px] border border-[#bccac1] font-bold truncate max-w-[160px]">
+                                {item.finding?.primaryFinding || 'Unclassified'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Mobile quick actions */}
+                          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                downloadPdfRecord(item);
+                              }}
+                              title="Download Full Clinical PDF"
+                              className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-100 bg-emerald-50/30 cursor-pointer"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCaseToDelete(item);
+                              }}
+                              title="Delete Case Record"
+                              className="w-8 h-8 flex items-center justify-center text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100 bg-rose-50/30 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => setSelectedDetailsCase(item)}
+                              title="View Case Details"
+                              className="w-8 h-8 flex items-center justify-center text-[#0077b6] hover:bg-[#f0f9ff] rounded-lg transition-colors border border-sky-100 bg-sky-50/30 cursor-pointer"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-12 text-[#3d4943] font-medium text-xs">
+                      No patient case history match. Let's start a New Assessment to record a case.
+                    </div>
+                  )}
                 </div>
 
                 <footer className="px-5 py-3.5 bg-[#f1f4f6] flex justify-between items-center border-t border-[#bccac1] text-xs font-semibold text-[#181c1e]">
@@ -2195,37 +2315,47 @@ export default function App() {
             </div>
 
             {/* Modal operations footer row */}
-            <div className="p-4 bg-[#f1f4f6] flex justify-end gap-3 border-t border-[#bccac1]">
+            <div className="p-4 bg-[#f1f4f6] flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#bccac1]">
               <button 
-                onClick={() => setSelectedDetailsCase(null)}
-                className="h-10 px-5 text-xs font-bold text-[#3d4943] hover:bg-[#e0e3e5] rounded-xl border border-[#bccac1] bg-white transition-colors"
+                onClick={() => setCaseToDelete(selectedDetailsCase)}
+                className="w-full sm:w-auto h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer order-last sm:order-first"
               >
-                Close View
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Case</span>
               </button>
 
-              <button 
-                onClick={() => downloadPdfRecord(selectedDetailsCase)}
-                className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Report</span>
-              </button>
-              
-              <button 
-                onClick={() => {
-                  // Preload details as active results to trigger printable Referral flow
-                  setPatient(selectedDetailsCase.patient);
-                  setCapturedImage(selectedDetailsCase.image);
-                  setActiveAnalysisResult(selectedDetailsCase.finding);
-                  setActiveCaseId(selectedDetailsCase.id);
-                  setSelectedDetailsCase(null);
-                  setScreen('referral-note');
-                }}
-                className="h-10 px-6 bg-[#0077b6] hover:bg-[#0096c7] text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileText className="w-4 h-4" />
-                <span>Format Referral Note</span>
-              </button>
+              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                <button 
+                  onClick={() => setSelectedDetailsCase(null)}
+                  className="h-10 px-5 text-xs font-bold text-[#3d4943] hover:bg-[#e0e3e5] rounded-xl border border-[#bccac1] bg-white transition-colors cursor-pointer"
+                >
+                  Close View
+                </button>
+
+                <button 
+                  onClick={() => downloadPdfRecord(selectedDetailsCase)}
+                  className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Report</span>
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    // Preload details as active results to trigger printable Referral flow
+                    setPatient(selectedDetailsCase.patient);
+                    setCapturedImage(selectedDetailsCase.image);
+                    setActiveAnalysisResult(selectedDetailsCase.finding);
+                    setActiveCaseId(selectedDetailsCase.id);
+                    setSelectedDetailsCase(null);
+                    setScreen('referral-note');
+                  }}
+                  className="h-10 px-6 bg-[#0077b6] hover:bg-[#0096c7] text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <FileText className="w-4 h-4" />
+                  <span>Format Referral Note</span>
+                </button>
+              </div>
             </div>
 
           </div>
@@ -2253,6 +2383,59 @@ export default function App() {
             <div className="inline-flex items-center gap-1.5 text-xs text-[#0077b6] font-mono font-bold bg-[#f0f9ff] px-3 py-1.5 rounded-lg">
               <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />
               REF ID: {activeCaseId}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE CONFIRMATION SYSTEM DIALOG */}
+      {caseToDelete && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 transform scale-100 transition-all space-y-4">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-display text-lg font-bold text-slate-900 tracking-tight">
+                  Delete Patient Case Record
+                </h3>
+                <p className="text-xs text-[#6d7a73]">
+                  You are about to permanently remove this case history from localized memory cache. This process is irreversible.
+                </p>
+              </div>
+            </div>
+
+            {/* Case Details Summary for visibility verification */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
+              <div className="flex justify-between items-center text-slate-500">
+                <span>Patient Full Name:</span>
+                <span className="font-bold text-slate-800">{caseToDelete.patient.name}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-500">
+                <span>Case Reference ID:</span>
+                <span className="font-mono text-slate-800 font-bold">{caseToDelete.id}</span>
+              </div>
+              <div className="flex justify-between items-center text-slate-500">
+                <span>Clinical Finding:</span>
+                <span className="font-bold text-slate-800">{caseToDelete.finding.primaryFinding}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end pt-2 text-xs font-bold">
+              <button 
+                onClick={() => setCaseToDelete(null)}
+                className="h-10 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 transition-colors cursor-pointer"
+              >
+                Cancel, Keep Record
+              </button>
+              <button 
+                onClick={() => deleteCaseRecord(caseToDelete.id)}
+                className="h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Yes, Permanently Delete</span>
+              </button>
             </div>
           </div>
         </div>
