@@ -1,0 +1,6 @@
+{
+  "name": "DermaDetect",
+  "description": "Skin assessment, diagnostics, and clinical case management utility designed for community health workers in any environment.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
