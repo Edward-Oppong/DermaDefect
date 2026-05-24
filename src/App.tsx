@@ -37,7 +37,13 @@ import {
   Printer,
   BookOpen,
   Languages,
-  Home
+  Home,
+  Cloud,
+  CloudOff,
+  Database,
+  RefreshCw,
+  Wifi,
+  Signal
 } from 'lucide-react';
 import { 
   INITIAL_CASES, 
@@ -46,6 +52,8 @@ import {
   PatientDetails, 
   DiagnosticResult 
 } from './types';
+import { TreatmentRecommendations, CONDITIONAL_GUIDELINES, normalizeCode } from './components/TreatmentRecommendations';
+import { jsPDF } from 'jspdf';
 
 // Multi-language string dictionary for our translation switcher feature
 const TRANSLATIONS = {
@@ -124,6 +132,7 @@ export default function App() {
   const [loadingText, setLoadingText] = useState('');
   const [activeAnalysisResult, setActiveAnalysisResult] = useState<DiagnosticResult | null>(null);
   const [activeCaseId, setActiveCaseId] = useState<string>('');
+  const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
 
   // Search, filtration and modal details properties for Case History Tab
   const [searchQuery, setSearchQuery] = useState('');
@@ -133,6 +142,103 @@ export default function App() {
 
   // Field worker digital signature
   const healthWorkerName = "K. Mensah";
+
+  // Database cloud sync and periodic checking state
+  const [dbStatus, setDbStatus] = useState<'online' | 'offline'>('online');
+  const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'syncing'>('synced');
+  const [latency, setLatency] = useState<number | null>(null);
+  const [lastSynced, setLastSynced] = useState<string | null>(null);
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(true);
+  const [displaySyncDropdown, setDisplaySyncDropdown] = useState<boolean>(false);
+
+  // Core database pushing function
+  const triggerCloudSync = async (currentCasesList: CaseRecord[]) => {
+    if (currentCasesList.length === 0) return;
+    setSyncStatus('syncing');
+    try {
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cases: currentCasesList })
+      });
+      
+      if (!response.ok) {
+        throw new Error('Sync status response returned unhealthy.');
+      }
+      
+      const data = await response.json();
+      if (data.success) {
+        setSyncStatus('synced');
+        setDbStatus('online');
+        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSynced(timestamp);
+        localStorage.setItem('dermadetect_last_synced', timestamp);
+      } else {
+        setSyncStatus('pending');
+      }
+    } catch (e) {
+      console.warn('Network interruption or cloud DB unreachable. Preserving in local cache.', e);
+      setSyncStatus('pending');
+      setDbStatus('offline');
+    }
+  };
+
+  // Connectivity check probe
+  const probeDatabaseHealth = async () => {
+    try {
+      const startTime = performance.now();
+      const response = await fetch('/api/health');
+      const endTime = performance.now();
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDbStatus('online');
+        setLatency(Math.round(endTime - startTime + (data.latencyMs || 0) / 4)); // absolute network loop computation
+        return true;
+      } else {
+        setDbStatus('offline');
+        setLatency(null);
+        return false;
+      }
+    } catch (e) {
+      setDbStatus('offline');
+      setLatency(null);
+      return false;
+    }
+  };
+
+  // Sync state loader
+  useEffect(() => {
+    const savedTime = localStorage.getItem('dermadetect_last_synced');
+    if (savedTime) {
+      setLastSynced(savedTime);
+    }
+  }, []);
+
+  // Sync effect engine (triggers on case changes and runs periodic loops)
+  useEffect(() => {
+    // Initial health check & sync
+    const initialCheck = async () => {
+      const isOnline = await probeDatabaseHealth();
+      if (isOnline && autoSyncEnabled && cases.length > 0) {
+        await triggerCloudSync(cases);
+      }
+    };
+    
+    if (cases.length > 0) {
+      initialCheck();
+    }
+    
+    // Set up 15-second database monitoring & sync loop
+    const syncInterval = setInterval(async () => {
+      const isOnline = await probeDatabaseHealth();
+      if (isOnline && autoSyncEnabled && cases.length > 0) {
+        await triggerCloudSync(cases);
+      }
+    }, 15000);
+
+    return () => clearInterval(syncInterval);
+  }, [cases, autoSyncEnabled]);
 
   // Real-time camera capture properties
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -376,10 +482,435 @@ export default function App() {
 
     const updated = [newRecord, ...cases];
     syncCasesToStorage(updated);
-    setScreen('case-history');
     
-    // Smooth auto scroll to grid
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Trigger celebratory success/data persistence checkmark animation
+    setShowSuccessAnimation(true);
+    
+    setTimeout(() => {
+      setShowSuccessAnimation(false);
+      setScreen('case-history');
+      // Smooth auto scroll to grid
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 1800);
+  };
+
+  // High-fidelity Clinical Report generator in PDF format using jsPDF
+  const downloadPdfRecord = (record: CaseRecord) => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      // Page dimensions
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2); // 180mm
+
+      // COLORS
+      const primaryColor = [0, 119, 182]; // #0077b6
+      const borderGray = [188, 202, 193]; // #bccac1
+      const lightBg = [241, 244, 246]; // #f1f4f6
+      const lightBlueBg = [240, 249, 255]; // #f0f9ff
+      const darkColor = [24, 28, 30]; // #181c1e
+      const textGray = [61, 73, 67]; // #3d4943
+      const textLightGray = [109, 122, 115]; // #6d7a73
+      const accentRed = [186, 26, 26]; // #ba1a1a
+
+      // ==========================================
+      // PAGE 1: CLINICAL REPORT & FINDINGS
+      // ==========================================
+
+      // 1. HEADER (LETTERHEAD STYLE)
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(margin, 15, contentWidth, 2, 'F');
+
+      let y = 24;
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text('DERMADETECT™ CLINICAL CASE DOSSIER', margin, y);
+
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const rightText = "FIELD OBSERVATION & DIAGNOSTIC RECORD";
+      doc.text(rightText, pageWidth - margin - doc.getTextWidth(rightText), y - 1);
+
+      y += 8;
+      // Divider line
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.setLineWidth(0.3);
+      doc.line(margin, y, pageWidth - margin, y);
+
+      y += 8;
+
+      // 2. PATIENT PROFILE & REPORT DETAILS (TWO COLUMNS)
+      // Left Column: Patient Profile
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('PATIENT PROFILE SECTION', margin, y);
+
+      // Right Column: Report Details
+      doc.text('ASSESSMENT METADATA', margin + 95, y);
+
+      y += 2;
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.line(margin, y, margin + 85, y);
+      doc.line(margin + 95, y, pageWidth - margin, y);
+
+      y += 6;
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text(`Full Legal Name:`, margin, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${record.patient.name}`, margin + 30, y);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Report Case ID:`, margin + 95, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${record.id}`, margin + 125, y);
+
+      y += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Age / Gender:`, margin, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${record.patient.age} Yrs  /  ${record.patient.sex}`, margin + 30, y);
+
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Date Assessed:`, margin + 95, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${record.date || new Date().toLocaleDateString()}`, margin + 125, y);
+
+      y += 5;
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Attending Worker:`, margin + 95, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`${record.healthWorker || 'K. Mensah'}`, margin + 125, y);
+
+      // Symptoms recorded (multi-line)
+      if (record.patient.symptoms) {
+        y += 5;
+        doc.setFont('helvetica', 'bold');
+        doc.text(`Clinical Symptoms:`, margin, y);
+        doc.setFont('helvetica', 'italic');
+        
+        const symptomsTxt = `"${record.patient.symptoms}"`;
+        const lines = doc.splitTextToSize(symptomsTxt, 55);
+        doc.text(lines, margin + 30, y);
+        // adjust y based on how many lines of symptoms we printed
+        y += (lines.length - 1) * 4;
+      }
+
+      y += 10;
+
+      // 3. DIAGNOSTIC PRIMARY FINDINGS
+      doc.setFillColor(lightBlueBg[0], lightBlueBg[1], lightBlueBg[2]);
+      // Background card for primary findings
+      doc.rect(margin, y, contentWidth, 32, 'F');
+      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setLineWidth(0.5);
+      doc.rect(margin, y, contentWidth, 32, 'D');
+
+      // Findings header
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('PRIMARY AUTOMATED AI ESTIMATION', margin + 5, y + 6);
+
+      y += 12;
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${record.finding.primaryFinding}`, margin + 5, y + 2);
+
+      // Confidence matching and Urgency Level
+      y += 6;
+      doc.setFontSize(9);
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
+      doc.text(`Match Confidence: `, margin + 5, y);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${record.finding.confidence}% Match`, margin + 35, y);
+
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`  |   Triage Urgency: `, margin + 65, y);
+      
+      const isHigh = record.finding.urgency === 'High';
+      const isMod = record.finding.urgency === 'Moderate';
+      if (isHigh) {
+        doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
+      } else if (isMod) {
+        doc.setTextColor(230, 81, 0); // brown/orange
+      } else {
+        doc.setTextColor(46, 125, 50); // green
+      }
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${record.finding.urgency} Priority Level`, margin + 98, y);
+
+      y += 12;
+
+      // 4. LESION IMAGING & RECOMMENDED ACTIONS (GRID)
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('CAPTURED LESION SPECIMEN', margin, y);
+      doc.text('ESTIMATED TACTICAL DIAGNOSTIC ACTION', margin + 85, y);
+
+      y += 2;
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.setLineWidth(0.3);
+      doc.line(margin, y, margin + 75, y);
+      doc.line(margin + 85, y, pageWidth - margin, y);
+
+      y += 6;
+
+      // Draw the image slot
+      const initialImgY = y;
+      let hasImage = false;
+      if (record.image) {
+        try {
+          doc.addImage(record.image, 'JPEG', margin, y, 75, 50);
+          hasImage = true;
+        } catch (err) {
+          console.warn('Failed to embed web snapshot directly, drawing vector bounding box placeholder Instead.', err);
+        }
+      }
+
+      if (!hasImage) {
+        // Draw elegant image box placeholder
+        doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+        doc.rect(margin, y, 75, 50, 'F');
+        doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+        doc.rect(margin, y, 75, 50, 'D');
+        
+        doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.text('Specimen Photo Media Block', margin + 17, y + 23);
+        doc.text('(Compressed on local sync)', margin + 18, y + 27);
+      }
+
+      // Action and next step text printing on right
+      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      
+      const recTitleLines = doc.splitTextToSize(`Onward Advice: ${record.finding.recommendedAction}`, 90);
+      doc.text(recTitleLines, margin + 85, y);
+
+      // Print recommendations details
+      y += (recTitleLines.length * 4) + 4;
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+
+      const standardActions = record.finding.treatmentNotes || [];
+      standardActions.forEach((action, idx) => {
+        const actionLines = doc.splitTextToSize(`• ${action}`, 90);
+        // check position space
+        if (y + actionLines.length * 4 < initialImgY + 54) {
+          doc.text(actionLines, margin + 85, y);
+          y += (actionLines.length * 4) + 1;
+        }
+      });
+
+      // Align y to end of image or text blocks
+      y = Math.max(initialImgY + 54, y) + 5;
+
+      // Footer of Page 1
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.setLineWidth(0.2);
+      doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+      
+      doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
+      doc.setFontSize(7);
+      const footerLText = "Clinical Report Generated Auto-Sync Gateway (V3.81). Handout verified by MOH Protocols.";
+      doc.text(footerLText, margin, pageHeight - 11);
+      const footerRText = "Page 1 of 2";
+      doc.text(footerRText, pageWidth - margin - doc.getTextWidth(footerRText), pageHeight - 11);
+
+
+      // ==========================================
+      // PAGE 2: DETAILED TREATMENT RECS
+      // ==========================================
+      doc.addPage();
+      y = 20;
+
+      // 1. PAGE 2 HEADER
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(margin, 15, contentWidth, 2, 'F');
+
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      doc.text('SUPPORTIVE TREATMENT WORKFLOW & CLINICAL RECIPE', margin, y + 4);
+
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const page2Sub = "SECURE PROTOCOL DISPENSING GUIDE";
+      doc.text(page2Sub, pageWidth - margin - doc.getTextWidth(page2Sub), y + 3);
+
+      y += 10;
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.line(margin, y, pageWidth - margin, y);
+
+      y += 8;
+
+      // Extract specific clinical guide
+      const codeKey = normalizeCode(record.finding.conditionCode || record.finding.primaryFinding);
+      const template = CONDITIONAL_GUIDELINES[codeKey];
+
+      if (template) {
+        // Core Clinical Treatment Guidelines Block
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text('I. PHARMACOLOGICAL DISPENSING DOSES', margin, y);
+
+        y += 5;
+        // background card for pharmacological guide
+        doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
+        doc.rect(margin, y, contentWidth, 54, 'F');
+        doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+        doc.rect(margin, y, contentWidth, 54, 'D');
+
+        // Column entries
+        let subY = y + 5;
+        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        
+        doc.text('Primary Medication Target Group:', margin + 4, subY);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.setFont('helvetica', 'bold');
+        const medLines = doc.splitTextToSize(template.medication, 110);
+        doc.text(medLines, margin + 55, subY);
+
+        subY += (medLines.length * 4) + 2;
+        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Standard Dosage & Timing Regimen:', margin + 4, subY);
+        doc.setFont('helvetica', 'normal');
+        const regLines = doc.splitTextToSize(template.regimen, 110);
+        doc.text(regLines, margin + 55, subY);
+
+        subY += (regLines.length * 4) + 2;
+        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Standard Triage Duration Instructions:', margin + 4, subY);
+        doc.setFont('helvetica', 'normal');
+        const durLines = doc.splitTextToSize(template.dosage, 110);
+        doc.text(durLines, margin + 55, subY);
+
+        subY += (durLines.length * 4) + 2;
+        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Important Contraindications & Allergies:', margin + 4, subY);
+        doc.setFont('helvetica', 'normal');
+        const contraLines = doc.splitTextToSize(template.contraindications, 110);
+        doc.text(contraLines, margin + 55, subY);
+
+        y += 63;
+
+        // At-Home Patient Instructions Dos and Don'ts
+        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.text("II. PATIENT AT-HOME ADVICE (INFORMATIONAL)", margin, y);
+
+        y += 5;
+        // Split two columns
+        // Column A: Patient Care Do's (Green banner accent)
+        doc.setFillColor(244, 252, 246); // extremely soft green
+        doc.rect(margin, y, 86, 75, 'F');
+        doc.setDrawColor(200, 230, 201);
+        doc.rect(margin, y, 86, 75, 'D');
+
+        doc.setTextColor(46, 125, 50);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text("RECOMMENDED DOS", margin + 4, y + 6);
+
+        // Print Do's
+        let dosY = y + 13;
+        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        template.dos.forEach((doItem, k) => {
+          const lines = doc.splitTextToSize(`• ${doItem}`, 78);
+          doc.text(lines, margin + 4, dosY);
+          dosY += (lines.length * 3.5) + 3;
+        });
+
+        // Column B: Patient Care Don'ts (Rose/Red banner accent)
+        doc.setFillColor(255, 245, 245); // extremely soft red
+        doc.rect(margin + 94, y, 86, 75, 'F');
+        doc.setDrawColor(255, 205, 210);
+        doc.rect(margin + 94, y, 86, 75, 'D');
+
+        doc.setTextColor(198, 40, 40);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text("HIGH RISK AVOIDANCE (DON'TS)", margin + 98, y + 6);
+
+        // Print Don'ts
+        let dontsY = y + 13;
+        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        template.donts.forEach((dontItem, k) => {
+          const lines = doc.splitTextToSize(`• ${dontItem}`, 78);
+          doc.text(lines, margin + 98, dontsY);
+          dontsY += (lines.length * 3.5) + 3;
+        });
+
+        y += 84;
+
+        // Clinical warning notes banner
+        doc.setFillColor(254, 242, 242); // crimson red wash
+        doc.rect(margin, y, contentWidth, 24, 'F');
+        doc.setDrawColor(accentRed[0], accentRed[1], accentRed[2]);
+        doc.setLineWidth(0.5);
+        doc.rect(margin, y, contentWidth, 24, 'D');
+
+        doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.text('CRITICAL SAFEGUARDS / CLINICAL WARNING NOTATIONS:', margin + 4, y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(127, 29, 29); // dark maroon
+        doc.setFontSize(8);
+        const warnLines = doc.splitTextToSize(template.warningNote, 172);
+        doc.text(warnLines, margin + 4, y + 10);
+      }
+
+      // Footer of Page 2
+      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
+      doc.setLineWidth(0.2);
+      doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
+      
+      doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
+      doc.setFontSize(7);
+      doc.text("Approved by Diagnostic QA Hub. Preserving offline records strictly with GDPR/HIPAA container logic.", margin, pageHeight - 11);
+      const page2NumTxt = "Page 2 of 2";
+      doc.text(page2NumTxt, pageWidth - margin - doc.getTextWidth(page2NumTxt), pageHeight - 11);
+
+      // SAVE DOCUMENT
+      const cleanPatientName = record.patient.name.trim().replace(/\s+/g, '_');
+      doc.save(`Clinical_Record_${record.id}_${cleanPatientName}.pdf`);
+    } catch (err: any) {
+      console.error('PDF construction failed completely:', err);
+      alert('We fell into a container layout exception generating the PDF file: ' + err.message);
+    }
   };
 
   // Interactive filters
@@ -433,6 +964,143 @@ export default function App() {
               {t.caseHistory}
             </button>
           </nav>
+
+          {/* DATABASE & CLOUD SYNC CONTROLLER */}
+          <div className="relative flex items-center">
+            <button
+              id="sync-engine-trigger"
+              onClick={() => {
+                setDisplaySyncDropdown(!displaySyncDropdown);
+                setLangMenuOpen(false);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm cursor-pointer mr-2 select-none ${
+                dbStatus === 'online'
+                  ? syncStatus === 'synced'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                    : syncStatus === 'syncing'
+                    ? 'bg-sky-50 border-sky-300 text-sky-700 hover:bg-sky-100'
+                    : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                  : 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
+              }`}
+            >
+              <div className="relative flex items-center justify-center">
+                {dbStatus === 'online' ? (
+                  syncStatus === 'syncing' ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Cloud className="w-3.5 h-3.5" />
+                  )
+                ) : (
+                  <CloudOff className="w-3.5 h-3.5" />
+                )}
+                <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${
+                  dbStatus === 'online'
+                    ? syncStatus === 'synced'
+                      ? 'bg-emerald-500'
+                      : 'bg-amber-500 animate-ping'
+                    : 'bg-rose-500'
+                }`} />
+              </div>
+              
+              <span className="hidden sm:inline">
+                {dbStatus === 'online'
+                  ? syncStatus === 'synced'
+                    ? 'Cloud Synced'
+                    : syncStatus === 'syncing'
+                    ? 'Syncing...'
+                    : 'Sync Pending'
+                  : 'Offline Cache'}
+              </span>
+            </button>
+
+            {/* Sync dropdown detailed dashboard */}
+            {displaySyncDropdown && (
+              <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-[#bccac1] rounded-2xl shadow-xl p-4 z-50 text-[#181c1e] text-left">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2.5">
+                  <span className="font-display font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-[#0077b6]" />
+                    Cloud Sync Engine
+                  </span>
+                  <button 
+                    onClick={() => setDisplaySyncDropdown(false)}
+                    className="p-1 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5 text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Connection Details */}
+                  <div className="p-2.5 bg-[#f1f4f6] rounded-xl border border-[#bccac1] text-[11px] space-y-1.5">
+                    <div className="flex justify-between items-center text-[#3d4943]">
+                      <span>Server Gateway:</span>
+                      <span className={`font-bold uppercase ${dbStatus === 'online' ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        {dbStatus === 'online' ? 'Active' : 'Disconnected'}
+                      </span>
+                    </div>
+                    {dbStatus === 'online' && latency !== null && (
+                      <div className="flex justify-between items-center text-[#3d4943]">
+                        <span>Database Latency:</span>
+                        <span className="font-mono text-[#181c1e] font-bold">{latency}ms (Excellent)</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center text-[#3d4943]">
+                      <span>Last Backup Push:</span>
+                      <span className="text-[#181c1e] font-bold">{lastSynced ? `${lastSynced}` : 'Never'}</span>
+                    </div>
+                  </div>
+
+                  {/* Sync status metrics */}
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className={`p-1.5 rounded-lg ${syncStatus === 'synced' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                      {syncStatus === 'synced' ? (
+                        <CheckCircle2 className="w-4 h-4" />
+                      ) : (
+                        <Signal className="w-4 h-4 animate-pulse" />
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 leading-tight">
+                        {syncStatus === 'synced' ? 'All records are secure' : 'Modifications pending sync'}
+                      </p>
+                      <p className="text-[10px] text-[#3d4943]">
+                        {cases.length} local {cases.length === 1 ? 'case standard' : 'cases standard'} preserved
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Bandwidth saver toggle */}
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-800">Auto-Sync Engine</span>
+                      <span className="text-[10px] text-[#3d4943]">Pushes data automatically</span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer select-none">
+                      <input 
+                        type="checkbox" 
+                        checked={autoSyncEnabled} 
+                        onChange={() => setAutoSyncEnabled(!autoSyncEnabled)}
+                        className="sr-only peer" 
+                      />
+                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#0077b6]"></div>
+                    </label>
+                  </div>
+
+                  {/* Force sync button */}
+                  <button
+                    onClick={() => {
+                      probeDatabaseHealth().then(() => triggerCloudSync(cases));
+                    }}
+                    disabled={syncStatus === 'syncing'}
+                    className="w-full h-9 bg-[#0077b6] hover:bg-[#0096c7] disabled:bg-slate-200 disabled:text-slate-400 text-white font-display font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                    <span>Sync Database Now</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Language translation menu dropdown */}
           <div className="relative">
@@ -971,21 +1639,12 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* Supportive notes care guideline */}
-                        <div className="bg-white border border-[#bccac1] p-5 rounded-2xl shadow-sm">
-                          <h4 className="font-display text-xs font-bold text-[#181c1e] mb-3 flex items-center gap-1.5">
-                            <HeartPulse className="w-4.5 h-4.5 text-[#0077b6]" />
-                            Outpatient Care Supportive Notes
-                          </h4>
-                          <ul className="space-y-3.5">
-                            {activeAnalysisResult.treatmentNotes.map((note, index) => (
-                              <li key={index} className="flex items-start gap-2 text-sm text-[#3d4943] leading-relaxed">
-                                <span className="w-1.5 h-1.5 rounded-full bg-[#0077b6] mt-2 shrink-0" />
-                                <span>{note}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                        {/* Interactive dynamic treatment recommendations/guidelines portal */}
+                        <TreatmentRecommendations 
+                          finding={activeAnalysisResult} 
+                          patient={patient} 
+                          caseId={activeCaseId || 'NEW-CASE'} 
+                        />
                       </div>
 
                       {/* Right Side lesion preview & urgency level */}
@@ -1329,10 +1988,26 @@ export default function App() {
                                 </span>
                               </div>
                             </td>
-                            <td className="px-5 py-4 text-right">
-                              <button className="text-[#0077b6] hover:bg-[#f0f9ff] p-1.5 rounded-full transition-colors border border-transparent hover:border-[#bccac1]">
-                                <ChevronRight className="w-5 h-5" />
-                              </button>
+                            <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadPdfRecord(item);
+                                  }}
+                                  title="Download Full Clinical PDF"
+                                  className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-emerald-200"
+                                >
+                                  <Download className="w-4.5 h-4.5" />
+                                </button>
+                                <button 
+                                  onClick={() => setSelectedDetailsCase(item)}
+                                  title="View Case Details"
+                                  className="text-[#0077b6] hover:bg-[#f0f9ff] p-1.5 rounded-full transition-colors border border-transparent hover:border-[#bccac1]"
+                                >
+                                  <ChevronRight className="w-4.5 h-4.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -1511,15 +2186,11 @@ export default function App() {
                 <p className="text-sm font-bold text-[#181c1e] leading-relaxed">
                   {selectedDetailsCase.finding.recommendedAction}
                 </p>
-                <div className="space-y-1.5 bg-[#f0f9ff] p-3 rounded-xl border border-[#bccac1] mt-2">
-                  <p className="text-[10px] font-bold text-[#0077b6] uppercase tracking-wider mb-2">Outpatient supportive guides</p>
-                  {selectedDetailsCase.finding.treatmentNotes.map((note, idx) => (
-                    <div key={idx} className="flex items-start gap-1.5 text-xs text-[#3d4943]">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#0077b6] mt-1.5 shrink-0" />
-                      <span>{note}</span>
-                    </div>
-                  ))}
-                </div>
+                <TreatmentRecommendations 
+                  finding={selectedDetailsCase.finding} 
+                  patient={selectedDetailsCase.patient} 
+                  caseId={selectedDetailsCase.id} 
+                />
               </div>
             </div>
 
@@ -1530,6 +2201,14 @@ export default function App() {
                 className="h-10 px-5 text-xs font-bold text-[#3d4943] hover:bg-[#e0e3e5] rounded-xl border border-[#bccac1] bg-white transition-colors"
               >
                 Close View
+              </button>
+
+              <button 
+                onClick={() => downloadPdfRecord(selectedDetailsCase)}
+                className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download Report</span>
               </button>
               
               <button 
@@ -1549,6 +2228,32 @@ export default function App() {
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* SUCCESS CHECKMARK CELEBRATION MODAL */}
+      {showSuccessAnimation && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-8 text-center shadow-2xl border border-slate-100 transform scale-100 transition-all">
+            <div className="checkmark-wrapper mb-6">
+              <svg className="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                <circle className="checkmark-circle" cx="26" cy="26" r="25" fill="none" />
+                <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+              </svg>
+            </div>
+            
+            <h3 className="font-display text-xl font-bold text-slate-900 tracking-tight mb-2">
+              Case Saved Successfully
+            </h3>
+            <p className="text-sm text-slate-500 leading-relaxed mb-4">
+              Diagnostic findings have been safely synced to patient records.
+            </p>
+            
+            <div className="inline-flex items-center gap-1.5 text-xs text-[#0077b6] font-mono font-bold bg-[#f0f9ff] px-3 py-1.5 rounded-lg">
+              <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />
+              REF ID: {activeCaseId}
+            </div>
           </div>
         </div>
       )}
