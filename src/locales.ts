@@ -1,0 +1,52 @@
+export type LanguageOption = 'English' | 'Swahili' | 'Spanish' | 'French';
+
+export const TRANSLATIONS = {
+  English: {
+    title: 'DermaDetect',
+    tagline: 'Skin assessment for community health workers',
+    subTitle: 'Empowering field health providers with professional dermatological diagnostic support. Securely capture, analyze, and manage patient skin health cases in any environment.',
+    newAssessment: 'New Assessment',
+    caseHistory: 'Case History',
+    startAssessment: 'Start New Assessment',
+    viewPastCases: 'View Past Cases',
+    offlineStatus: 'Offline Mode: Active',
+    offlineBody: 'Data syncs automatically when reconnected.',
+    offlineBtn: 'Offline Mode Ready',
+  },
+  Swahili: {
+    title: 'DermaDetect',
+    tagline: 'Uchunguzi wa ngozi kwa wahudumu wa afya',
+    subTitle: 'Kuwezesha watoa huduma wa nyanjani kwa usaidizi wa kitaalamu wa uchunguzi wa ugonjwa wa ngozi. Rekodi na udhibiti kesi za ngozi kwa usalama katika mazingira yoyote.',
+    newAssessment: 'Uchunguzi Mpya',
+    caseHistory: 'Kesi za Nyuma',
+    startAssessment: 'Anza Uchunguzi Mpya',
+    viewPastCases: 'Angalia Kesi za Nyuma',
+    offlineStatus: 'Kazi Nje ya Mtandao: Imewezeshwa',
+    offlineBody: 'Data itasawazishwa kiotomatiki ukiwa mtandaoni.',
+    offlineBtn: 'Nje ya Mtandao Tayari',
+  },
+  Spanish: {
+    title: 'DermaDetect',
+    tagline: 'Evaluación cutánea para promotores de salud',
+    subTitle: 'Capacitando a los proveedores de salud de campo con soporte de diagnóstico dermatológico profesional. Registre, analice y gestione casos con seguridad en cualquier entorno.',
+    newAssessment: 'Nueva Evaluación',
+    caseHistory: 'Historial de Casos',
+    startAssessment: 'Iniciar Evaluación',
+    viewPastCases: 'Ver Casos Anteriores',
+    offlineStatus: 'Modo sin Conexión: Activo',
+    offlineBody: 'Los datos se sincronizan automáticamente al reconectarse.',
+    offlineBtn: 'Listo sin Conexión',
+  },
+  French: {
+    title: 'DermaDetect',
+    tagline: 'Évaluation cutanée pour agents de santé',
+    subTitle: 'Soutenir les prestataires de soins sur le terrain avec un diagnostic dermatologique professionnel. Capturez, analysez et gérez les cas de peau des patients en toute sécurité.',
+    newAssessment: 'Nouvelle Évaluation',
+    caseHistory: 'Historique des Cas',
+    startAssessment: 'Nouvel Examen',
+    viewPastCases: 'Consulter l\'Historique',
+    offlineStatus: 'Mode Hors-ligne : Actif',
+    offlineBody: 'Synchronisation automatique lors de la reconnexion.',
+    offlineBtn: 'Prêt Hors-ligne',
+  }
+};

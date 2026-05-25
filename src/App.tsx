@@ -47,79 +47,23 @@ import {
   Trash2
 } from 'lucide-react';
 import { 
-  INITIAL_CASES, 
   SAMPLE_CASE_TEMPLATES, 
   CaseRecord, 
   PatientDetails, 
   DiagnosticResult 
 } from './types';
-import { TreatmentRecommendations, CONDITIONAL_GUIDELINES, normalizeCode } from './components/TreatmentRecommendations';
+import { TRANSLATIONS, LanguageOption } from './locales';
+import { TreatmentRecommendations } from './components/TreatmentRecommendations';
 import { jsPDF } from 'jspdf';
-
-// Multi-language string dictionary for our translation switcher feature
-const TRANSLATIONS = {
-  English: {
-    title: 'DermaDetect',
-    tagline: 'Skin assessment for community health workers',
-    subTitle: 'Empowering field health providers with professional dermatological diagnostic support. Securely capture, analyze, and manage patient skin health cases in any environment.',
-    newAssessment: 'New Assessment',
-    caseHistory: 'Case History',
-    startAssessment: 'Start New Assessment',
-    viewPastCases: 'View Past Cases',
-    offlineStatus: 'Offline Mode: Active',
-    offlineBody: 'Data syncs automatically when reconnected.',
-    offlineBtn: 'Offline Mode Ready',
-  },
-  Swahili: {
-    title: 'DermaDetect',
-    tagline: 'Uchunguzi wa ngozi kwa wahudumu wa afya',
-    subTitle: 'Kuwezesha watoa huduma wa nyanjani kwa usaidizi wa kitaalamu wa uchunguzi wa ugonjwa wa ngozi. Rekodi na udhibiti kesi za ngozi kwa usalama katika mazingira yoyote.',
-    newAssessment: 'Uchunguzi Mpya',
-    caseHistory: 'Kesi za Nyuma',
-    startAssessment: 'Anza Uchunguzi Mpya',
-    viewPastCases: 'Angalia Kesi za Nyuma',
-    offlineStatus: 'Kazi Nje ya Mtandao: Imewezeshwa',
-    offlineBody: 'Data itasawazishwa kiotomatiki ukiwa mtandaoni.',
-    offlineBtn: 'Nje ya Mtandao Tayari',
-  },
-  Spanish: {
-    title: 'DermaDetect',
-    tagline: 'Evaluación cutánea para promotores de salud',
-    subTitle: 'Capacitando a los proveedores de salud de campo con soporte de diagnóstico dermatológico profesional. Registre, analice y gestione casos con seguridad en cualquier entorno.',
-    newAssessment: 'Nueva Evaluación',
-    caseHistory: 'Historial de Casos',
-    startAssessment: 'Iniciar Evaluación',
-    viewPastCases: 'Ver Casos Anteriores',
-    offlineStatus: 'Modo sin Conexión: Activo',
-    offlineBody: 'Los datos se sincronizan automáticamente al reconectarse.',
-    offlineBtn: 'Listo sin Conexión',
-  },
-  French: {
-    title: 'DermaDetect',
-    tagline: 'Évaluation cutanée pour agents de santé',
-    subTitle: 'Soutenir les prestataires de soins sur le terrain avec un diagnostic dermatologique professionnel. Capturez, analysez et gérez les cas de peau des patients en toute sécurité.',
-    newAssessment: 'Nouvelle Évaluation',
-    caseHistory: 'Historique des Cas',
-    startAssessment: 'Nouvel Examen',
-    viewPastCases: 'Consulter l\'Historique',
-    offlineStatus: 'Mode Hors-ligne : Actif',
-    offlineBody: 'Synchronisation automatique lors de la reconnexion.',
-    offlineBtn: 'Prêt Hors-ligne',
-  }
-};
-
-type LanguageOption = 'English' | 'Swahili' | 'Spanish' | 'French';
+import ReactMarkdown from 'react-markdown';
 
 export default function App() {
-  // Navigation & Screen Switcher
   const [screen, setScreen] = useState<'home' | 'assessment-info' | 'assessment-capture' | 'assessment-review' | 'referral-note' | 'case-history'>('home');
   const [lang, setLang] = useState<LanguageOption>('English');
   const [langMenuOpen, setLangMenuOpen] = useState(false);
 
-  // Persistent storage list for cases
   const [cases, setCases] = useState<CaseRecord[]>([]);
 
-  // Current active assessment state variables
   const [patient, setPatient] = useState<PatientDetails>({
     name: '',
     age: '',
@@ -135,28 +79,33 @@ export default function App() {
   const [activeCaseId, setActiveCaseId] = useState<string>('');
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
 
-  // Search, filtration and modal details properties for Case History Tab
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUrgency, setFilterUrgency] = useState<'All' | 'High' | 'Moderate' | 'Low'>('All');
   const [selectedDetailsCase, setSelectedDetailsCase] = useState<CaseRecord | null>(null);
   const [zoomImage, setZoomImage] = useState(false);
 
-  // Field worker digital signature
-  const healthWorkerName = "K. Mensah";
+  const [healthWorkerName, setHealthWorkerName] = useState<string>(() => {
+    return localStorage.getItem('dermadetect_worker_name') || '';
+  });
 
-  // State for tracking active case destruction/deletion confirmation safely inside an iframe
-  const [caseToDelete, setCaseToDelete] = useState<CaseRecord | null>(null);
-
-  const deleteCaseRecord = (recordId: string) => {
-    const updated = cases.filter(item => item.id !== recordId);
-    syncCasesToStorage(updated);
-    if (selectedDetailsCase?.id === recordId) {
-      setSelectedDetailsCase(null);
+  useEffect(() => {
+    if (!healthWorkerName) {
+      const name = window.prompt("Please enter your name (Health Worker Profile):", "K. Mensah");
+      if (name) {
+        setHealthWorkerName(name);
+        localStorage.setItem('dermadetect_worker_name', name);
+      } else {
+        setHealthWorkerName("Unknown Worker");
+      }
     }
-    setCaseToDelete(null);
-  };
+  }, [healthWorkerName]);
 
-  // Database cloud sync and periodic checking state
+  const [caseToDelete, setCaseToDelete] = useState<CaseRecord | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // Database cloud sync state
+  // ---------------------------------------------------------------------------
   const [dbStatus, setDbStatus] = useState<'online' | 'offline'>('online');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'syncing'>('synced');
   const [latency, setLatency] = useState<number | null>(null);
@@ -164,49 +113,46 @@ export default function App() {
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(true);
   const [displaySyncDropdown, setDisplaySyncDropdown] = useState<boolean>(false);
 
-  // Core database pushing function
+  // ---------------------------------------------------------------------------
+  // Core sync — POSTs each case individually to /api/cases (upsert)
+  // ---------------------------------------------------------------------------
   const triggerCloudSync = async (currentCasesList: CaseRecord[]) => {
     if (currentCasesList.length === 0) return;
     setSyncStatus('syncing');
     try {
-      const response = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cases: currentCasesList })
-      });
-      
-      if (!response.ok) {
-        throw new Error('Sync status response returned unhealthy.');
-      }
-      
-      const data = await response.json();
-      if (data.success) {
-        setSyncStatus('synced');
-        setDbStatus('online');
-        const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        setLastSynced(timestamp);
-        localStorage.setItem('dermadetect_last_synced', timestamp);
-      } else {
-        setSyncStatus('pending');
-      }
+      await Promise.all(
+        currentCasesList.map(c =>
+          fetch('/api/cases', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(c)
+          })
+        )
+      );
+      setSyncStatus('synced');
+      setDbStatus('online');
+      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSynced(timestamp);
+      localStorage.setItem('dermadetect_last_synced', timestamp);
     } catch (e) {
-      console.warn('Network interruption or cloud DB unreachable. Preserving in local cache.', e);
+      console.warn('Sync failed. Preserving in local cache.', e);
       setSyncStatus('pending');
       setDbStatus('offline');
     }
   };
 
-  // Connectivity check probe
+  // ---------------------------------------------------------------------------
+  // Health probe
+  // ---------------------------------------------------------------------------
   const probeDatabaseHealth = async () => {
     try {
       const startTime = performance.now();
       const response = await fetch('/api/health');
       const endTime = performance.now();
-      
       if (response.ok) {
         const data = await response.json();
         setDbStatus('online');
-        setLatency(Math.round(endTime - startTime + (data.latencyMs || 0) / 4)); // absolute network loop computation
+        setLatency(Math.round(endTime - startTime + (data.latencyMs || 0) / 4));
         return true;
       } else {
         setDbStatus('offline');
@@ -220,29 +166,23 @@ export default function App() {
     }
   };
 
-  // Sync state loader
+  // Restore last synced timestamp on mount
   useEffect(() => {
     const savedTime = localStorage.getItem('dermadetect_last_synced');
-    if (savedTime) {
-      setLastSynced(savedTime);
-    }
+    if (savedTime) setLastSynced(savedTime);
   }, []);
 
-  // Sync effect engine (triggers on case changes and runs periodic loops)
+  // Periodic sync loop
   useEffect(() => {
-    // Initial health check & sync
     const initialCheck = async () => {
       const isOnline = await probeDatabaseHealth();
       if (isOnline && autoSyncEnabled && cases.length > 0) {
         await triggerCloudSync(cases);
       }
     };
-    
-    if (cases.length > 0) {
-      initialCheck();
-    }
-    
-    // Set up 15-second database monitoring & sync loop
+
+    if (cases.length > 0) initialCheck();
+
     const syncInterval = setInterval(async () => {
       const isOnline = await probeDatabaseHealth();
       if (isOnline && autoSyncEnabled && cases.length > 0) {
@@ -253,38 +193,55 @@ export default function App() {
     return () => clearInterval(syncInterval);
   }, [cases, autoSyncEnabled]);
 
-  // Real-time camera capture properties
+  // ---------------------------------------------------------------------------
+  // Camera
+  // ---------------------------------------------------------------------------
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Initialize cases from LocalStorage on mount
+  // ---------------------------------------------------------------------------
+  // Load cases: SQLite first, localStorage fallback, INITIAL_CASES last resort
+  // ---------------------------------------------------------------------------
   useEffect(() => {
-    const stored = localStorage.getItem('dermadetect_cases');
-    if (stored) {
+    const loadCases = async () => {
       try {
-        setCases(JSON.parse(stored));
-      } catch (err) {
-        console.error("Failed to parse stored cases, resetting...", err);
-        setCases(INITIAL_CASES);
+        const response = await fetch('/api/cases');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.cases && data.cases.length > 0) {
+            setCases(data.cases);
+            localStorage.setItem('dermadetect_cases', JSON.stringify(data.cases));
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Server unreachable on load, falling back to localStorage:', e);
       }
-    } else {
-      setCases(INITIAL_CASES);
-      localStorage.setItem('dermadetect_cases', JSON.stringify(INITIAL_CASES));
-    }
+
+        const stored = localStorage.getItem('dermadetect_cases');
+      if (stored) {
+        try {
+          setCases(JSON.parse(stored));
+        } catch {
+          setCases([]);
+        }
+      } else {
+        setCases([]);
+      }
+    };
+
+    loadCases();
   }, []);
 
-  // Sync state to local storage helper
   const syncCasesToStorage = (updatedCases: CaseRecord[]) => {
     setCases(updatedCases);
     localStorage.setItem('dermadetect_cases', JSON.stringify(updatedCases));
   };
 
-  // Switch clean language helper
   const t = TRANSLATIONS[lang];
 
-  // Starts the assessment workflow from scratch
   const resetAndStartAssessment = () => {
     setPatient({ name: '', age: '', sex: '', symptoms: '' });
     setCapturedImage(null);
@@ -295,7 +252,9 @@ export default function App() {
     stopWebcam();
   };
 
-  // Webcam controls
+  // ---------------------------------------------------------------------------
+  // Webcam
+  // ---------------------------------------------------------------------------
   const startWebcam = async () => {
     setIsCameraActive(true);
     setCameraError(null);
@@ -304,9 +263,7 @@ export default function App() {
         video: { facingMode: 'environment', width: 640, height: 480 } 
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err: any) {
       console.warn("Camera streaming turned down or unsupportable in layout:", err);
       setCameraError("Webcam not accessible. Please upload details from the Gallery or select one of our common training case templates.");
@@ -322,7 +279,6 @@ export default function App() {
     setIsCameraActive(false);
   };
 
-  // Capture current webcam video frame to Base64
   const captureFrame = () => {
     if (videoRef.current) {
       const canvas = document.createElement('canvas');
@@ -339,7 +295,6 @@ export default function App() {
     }
   };
 
-  // Gallery file picker helper
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -353,25 +308,26 @@ export default function App() {
     }
   };
 
-  // Pre-load training templates click handler
-  const selectTemplateInstance = (templateUrl: string, templateFinding: DiagnosticResult) => {
+  const selectTemplateInstance = (templateUrl: string) => {
     setCapturedImage(templateUrl);
     setCustomFileSelected(false);
     stopWebcam();
+    setScreen('assessment-capture'); // Take them directly to enter patient info
   };
 
-  // Invoke server-side Gemini Multi-modal Analysis
+  // ---------------------------------------------------------------------------
+  // AI analysis
+  // ---------------------------------------------------------------------------
   const runAiAnalysis = async () => {
     if (!capturedImage) return;
 
     setAnalysisLoading(true);
-    
-    // Cycle visual progress logs to let users see clean, encouraging medical steps in action
+
     const messages = [
       "Accessing secured local database sandbox...",
       "Encrypting transmission packet according to medical standard guidelines...",
       "Extracting skin lesion pigmentation & margins...",
-      "Invoking Gemini multi-modal diagnostic assistant...",
+      "Invoking DermaVision diagnostic model...",
       "Conducting diagnostic taxonomy matrix parsing...",
       "Finalizing triage urgency confidence ratings..."
     ];
@@ -380,9 +336,7 @@ export default function App() {
     setLoadingText(messages[0]);
     const timer = setInterval(() => {
       i++;
-      if (i < messages.length) {
-        setLoadingText(messages[i]);
-      }
+      if (i < messages.length) setLoadingText(messages[i]);
     }, 700);
 
     try {
@@ -403,84 +357,33 @@ export default function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Analysis backend query returned non-healthy HTTP status.');
+        throw new Error(`Analysis returned status ${response.status}`);
       }
 
       const result: DiagnosticResult = await response.json();
-      
-      // Artificial short delay to finalize the aesthetic loader
+
       await new Promise(resolve => setTimeout(resolve, 800));
-      
       clearInterval(timer);
       setActiveAnalysisResult(result);
-      // Create random unique reference format for clinic referral verification
       const randomID = `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
       setActiveCaseId(randomID);
       setScreen('assessment-review');
 
     } catch (err) {
-      console.error('Critical remote skin analysis failed. Using automatic clinical fallback heuristics.', err);
-      // Fallback local heuristic analysis if server responds with error
-      const text = patient.symptoms.toLowerCase();
-      let fallback: DiagnosticResult;
-
-      if (text.includes('circular') || text.includes('ring') || text.includes('scaly') || text.includes('center')) {
-        fallback = {
-          primaryFinding: "Ringworm (Tinea Corporis)",
-          confidence: 88,
-          urgency: "Moderate",
-          urgencyText: "Refer to clinic within 3 days. Symptoms are progressive but non-emergent.",
-          treatmentNotes: [
-            "Advise patient to keep the affected skin area clean and dry.",
-            "Avoid sharing personal items like towels, comb, or clothing with family members.",
-            "Apply over-the-counter antifungal cream (e.g., Clotrimazole or Miconazole) twice daily until pediatric or clinical review."
-          ],
-          recommendedAction: "Refer to District Hospital Dermatology Unit or general health post for confirmatory biopsy and initiation of systemic antifungal therapy.",
-          conditionCode: "ringworm"
-        };
-      } else if (text.includes('allergy') || text.includes('rash') || text.includes('contact') || text.includes('itching')) {
-        fallback = {
-          primaryFinding: "Contact Dermatitis",
-          confidence: 94,
-          urgency: "Low",
-          urgencyText: "Local symptoms are stable and manageable with standard home care checks.",
-          treatmentNotes: [
-            "Identify and completely isolate the contact allergen (e.g. soaps, metals, cosmetics).",
-            "Instruct patient to avoid scratching to prevent opportunistic bacterial infections.",
-            "Apply cooling compresses or mild standard topical corticosteroids if requested."
-          ],
-          recommendedAction: "Local health post therapy. Re-evaluate if lesions expand or do not subside in 10-14 days.",
-          conditionCode: "contact_dermatitis"
-        };
-      } else {
-        fallback = {
-          primaryFinding: "Basal Cell Carcinoma",
-          confidence: 85,
-          urgency: "High",
-          urgencyText: "Refer to dermatology unit within 7 days for biopsy. Standard clinical referral path recommended.",
-          treatmentNotes: [
-            "Instruct patient strictly in sun protective behaviors (broad-spectrum sunscreen, wide hats).",
-            "Keep the area clean, avoid picking or surgical probing in unauthorized environments.",
-            "Monitor for border elevation, pigment changes, local bleeding or weeping."
-          ],
-          recommendedAction: "Refer to District Hospital Surgery/Oncology Unit for excision biopsy under local anesthesia.",
-          conditionCode: "basal_cell"
-        };
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 800));
+      console.error('Remote skin analysis failed:', err);
       clearInterval(timer);
-      setActiveAnalysisResult(fallback);
-      const randomID = `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      setActiveCaseId(randomID);
-      setScreen('assessment-review');
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      window.alert('Analysis failed. Please check your network connection and try again.');
     } finally {
       setAnalysisLoading(false);
     }
   };
 
-  // Convert current reviewed result and patient state into persistent Case Record
-  const saveCaseRecord = () => {
+  // ---------------------------------------------------------------------------
+  // Save case — writes to local state + localStorage + SQLite immediately
+  // ---------------------------------------------------------------------------
+  const saveCaseRecord = async () => {
     if (!activeAnalysisResult || !capturedImage) return;
 
     const newRecord: CaseRecord = {
@@ -495,48 +398,64 @@ export default function App() {
 
     const updated = [newRecord, ...cases];
     syncCasesToStorage(updated);
-    
-    // Trigger celebratory success/data persistence checkmark animation
+
+    try {
+      await fetch('/api/cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord)
+      });
+    } catch (e) {
+      console.warn('Failed to persist new case to server:', e);
+    }
+
     setShowSuccessAnimation(true);
-    
     setTimeout(() => {
       setShowSuccessAnimation(false);
       setScreen('case-history');
-      // Smooth auto scroll to grid
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 1800);
   };
 
-  // High-fidelity Clinical Report generator in PDF format using jsPDF
+  // ---------------------------------------------------------------------------
+  // Delete case — removes from local state + localStorage + SQLite
+  // ---------------------------------------------------------------------------
+  const deleteCaseRecord = async (recordId: string) => {
+    const updated = cases.filter(item => item.id !== recordId);
+    syncCasesToStorage(updated);
+
+    try {
+      await fetch(`/api/cases/${recordId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.warn('Failed to delete case from server:', e);
+    }
+
+    if (selectedDetailsCase?.id === recordId) setSelectedDetailsCase(null);
+    setCaseToDelete(null);
+  };
+
+  // ---------------------------------------------------------------------------
+  // PDF export
+  // ---------------------------------------------------------------------------
   const downloadPdfRecord = (record: CaseRecord) => {
     try {
-      const doc = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-      // Page dimensions
       const pageWidth = 210;
       const pageHeight = 297;
       const margin = 15;
-      const contentWidth = pageWidth - (margin * 2); // 180mm
+      const contentWidth = pageWidth - (margin * 2);
 
-      // COLORS
-      const primaryColor = [0, 119, 182]; // #0077b6
-      const borderGray = [188, 202, 193]; // #bccac1
-      const lightBg = [241, 244, 246]; // #f1f4f6
-      const lightBlueBg = [240, 249, 255]; // #f0f9ff
-      const darkColor = [24, 28, 30]; // #181c1e
-      const textGray = [61, 73, 67]; // #3d4943
-      const textLightGray = [109, 122, 115]; // #6d7a73
-      const accentRed = [186, 26, 26]; // #ba1a1a
+      const primaryColor = [0, 119, 182];
+      const borderGray = [188, 202, 193];
+      const lightBg = [241, 244, 246];
+      const lightBlueBg = [240, 249, 255];
+      const darkColor = [24, 28, 30];
+      const textGray = [61, 73, 67];
+      const textLightGray = [109, 122, 115];
+      const accentRed = [186, 26, 26];
 
-      // ==========================================
-      // PAGE 1: CLINICAL REPORT & FINDINGS
-      // ==========================================
-
-      // 1. HEADER (LETTERHEAD STYLE)
+      // PAGE 1
       doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.rect(margin, 15, contentWidth, 2, 'F');
 
@@ -553,21 +472,15 @@ export default function App() {
       doc.text(rightText, pageWidth - margin - doc.getTextWidth(rightText), y - 1);
 
       y += 8;
-      // Divider line
       doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
       doc.setLineWidth(0.3);
       doc.line(margin, y, pageWidth - margin, y);
-
       y += 8;
 
-      // 2. PATIENT PROFILE & REPORT DETAILS (TWO COLUMNS)
-      // Left Column: Patient Profile
       doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
       doc.text('PATIENT PROFILE SECTION', margin, y);
-
-      // Right Column: Report Details
       doc.text('ASSESSMENT METADATA', margin + 95, y);
 
       y += 2;
@@ -582,7 +495,6 @@ export default function App() {
       doc.text(`Full Legal Name:`, margin, y);
       doc.setFont('helvetica', 'normal');
       doc.text(`${record.patient.name}`, margin + 30, y);
-
       doc.setFont('helvetica', 'bold');
       doc.text(`Report Case ID:`, margin + 95, y);
       doc.setFont('helvetica', 'normal');
@@ -593,7 +505,6 @@ export default function App() {
       doc.text(`Age / Gender:`, margin, y);
       doc.setFont('helvetica', 'normal');
       doc.text(`${record.patient.age} Yrs  /  ${record.patient.sex}`, margin + 30, y);
-
       doc.setFont('helvetica', 'bold');
       doc.text(`Date Assessed:`, margin + 95, y);
       doc.setFont('helvetica', 'normal');
@@ -603,33 +514,27 @@ export default function App() {
       doc.setFont('helvetica', 'bold');
       doc.text(`Attending Worker:`, margin + 95, y);
       doc.setFont('helvetica', 'normal');
-      doc.text(`${record.healthWorker || 'K. Mensah'}`, margin + 125, y);
+      doc.text(`${record.healthWorker || 'Unknown Worker'}`, margin + 125, y);
 
-      // Symptoms recorded (multi-line)
       if (record.patient.symptoms) {
         y += 5;
         doc.setFont('helvetica', 'bold');
         doc.text(`Clinical Symptoms:`, margin, y);
         doc.setFont('helvetica', 'italic');
-        
         const symptomsTxt = `"${record.patient.symptoms}"`;
         const lines = doc.splitTextToSize(symptomsTxt, 55);
         doc.text(lines, margin + 30, y);
-        // adjust y based on how many lines of symptoms we printed
         y += (lines.length - 1) * 4;
       }
 
       y += 10;
 
-      // 3. DIAGNOSTIC PRIMARY FINDINGS
       doc.setFillColor(lightBlueBg[0], lightBlueBg[1], lightBlueBg[2]);
-      // Background card for primary findings
       doc.rect(margin, y, contentWidth, 32, 'F');
       doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.setLineWidth(0.5);
       doc.rect(margin, y, contentWidth, 32, 'D');
 
-      // Findings header
       doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
@@ -641,7 +546,6 @@ export default function App() {
       doc.setFont('helvetica', 'bold');
       doc.text(`${record.finding.primaryFinding}`, margin + 5, y + 2);
 
-      // Confidence matching and Urgency Level
       y += 6;
       doc.setFontSize(9);
       doc.setTextColor(textGray[0], textGray[1], textGray[2]);
@@ -653,22 +557,17 @@ export default function App() {
       doc.setTextColor(textGray[0], textGray[1], textGray[2]);
       doc.setFont('helvetica', 'normal');
       doc.text(`  |   Triage Urgency: `, margin + 65, y);
-      
+
       const isHigh = record.finding.urgency === 'High';
       const isMod = record.finding.urgency === 'Moderate';
-      if (isHigh) {
-        doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
-      } else if (isMod) {
-        doc.setTextColor(230, 81, 0); // brown/orange
-      } else {
-        doc.setTextColor(46, 125, 50); // green
-      }
+      if (isHigh) doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
+      else if (isMod) doc.setTextColor(230, 81, 0);
+      else doc.setTextColor(46, 125, 50);
       doc.setFont('helvetica', 'bold');
       doc.text(`${record.finding.urgency} Priority Level`, margin + 98, y);
 
       y += 12;
 
-      // 4. LESION IMAGING & RECOMMENDED ACTIONS (GRID)
       doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
@@ -680,10 +579,8 @@ export default function App() {
       doc.setLineWidth(0.3);
       doc.line(margin, y, margin + 75, y);
       doc.line(margin + 85, y, pageWidth - margin, y);
-
       y += 6;
 
-      // Draw the image slot
       const initialImgY = y;
       let hasImage = false;
       if (record.image) {
@@ -691,17 +588,15 @@ export default function App() {
           doc.addImage(record.image, 'JPEG', margin, y, 75, 50);
           hasImage = true;
         } catch (err) {
-          console.warn('Failed to embed web snapshot directly, drawing vector bounding box placeholder Instead.', err);
+          console.warn('Failed to embed image in PDF:', err);
         }
       }
 
       if (!hasImage) {
-        // Draw elegant image box placeholder
         doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
         doc.rect(margin, y, 75, 50, 'F');
         doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
         doc.rect(margin, y, 75, 50, 'D');
-        
         doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
@@ -709,53 +604,40 @@ export default function App() {
         doc.text('(Compressed on local sync)', margin + 18, y + 27);
       }
 
-      // Action and next step text printing on right
       doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9.5);
-      
       const recTitleLines = doc.splitTextToSize(`Onward Advice: ${record.finding.recommendedAction}`, 90);
       doc.text(recTitleLines, margin + 85, y);
 
-      // Print recommendations details
       y += (recTitleLines.length * 4) + 4;
       doc.setTextColor(textGray[0], textGray[1], textGray[2]);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
 
-      const standardActions = record.finding.treatmentNotes || [];
-      standardActions.forEach((action, idx) => {
+      (record.finding.treatmentNotes || []).forEach((action) => {
         const actionLines = doc.splitTextToSize(`• ${action}`, 90);
-        // check position space
         if (y + actionLines.length * 4 < initialImgY + 54) {
           doc.text(actionLines, margin + 85, y);
           y += (actionLines.length * 4) + 1;
         }
       });
 
-      // Align y to end of image or text blocks
       y = Math.max(initialImgY + 54, y) + 5;
 
-      // Footer of Page 1
       doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
       doc.setLineWidth(0.2);
       doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
-      
       doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
       doc.setFontSize(7);
-      const footerLText = "Clinical Report Generated Auto-Sync Gateway (V3.81). Handout verified by MOH Protocols.";
-      doc.text(footerLText, margin, pageHeight - 11);
+      doc.text("Clinical Report Generated Auto-Sync Gateway (V3.81). Handout verified by MOH Protocols.", margin, pageHeight - 11);
       const footerRText = "Page 1 of 2";
       doc.text(footerRText, pageWidth - margin - doc.getTextWidth(footerRText), pageHeight - 11);
 
-
-      // ==========================================
-      // PAGE 2: DETAILED TREATMENT RECS
-      // ==========================================
+      // PAGE 2
       doc.addPage();
       y = 20;
 
-      // 1. PAGE 2 HEADER
       doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
       doc.rect(margin, 15, contentWidth, 2, 'F');
 
@@ -773,33 +655,28 @@ export default function App() {
       y += 10;
       doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
       doc.line(margin, y, pageWidth - margin, y);
-
       y += 8;
 
-      // Extract specific clinical guide
       const codeKey = normalizeCode(record.finding.conditionCode || record.finding.primaryFinding);
       const template = CONDITIONAL_GUIDELINES[codeKey];
 
       if (template) {
-        // Core Clinical Treatment Guidelines Block
         doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
         doc.text('I. PHARMACOLOGICAL DISPENSING DOSES', margin, y);
-
         y += 5;
-        // background card for pharmacological guide
+
         doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
         doc.rect(margin, y, contentWidth, 54, 'F');
         doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
         doc.rect(margin, y, contentWidth, 54, 'D');
 
-        // Column entries
         let subY = y + 5;
         doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
-        
+
         doc.text('Primary Medication Target Group:', margin + 4, subY);
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
@@ -833,53 +710,45 @@ export default function App() {
 
         y += 63;
 
-        // At-Home Patient Instructions Dos and Don'ts
         doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
         doc.text("II. PATIENT AT-HOME ADVICE (INFORMATIONAL)", margin, y);
-
         y += 5;
-        // Split two columns
-        // Column A: Patient Care Do's (Green banner accent)
-        doc.setFillColor(244, 252, 246); // extremely soft green
+
+        doc.setFillColor(244, 252, 246);
         doc.rect(margin, y, 86, 75, 'F');
         doc.setDrawColor(200, 230, 201);
         doc.rect(margin, y, 86, 75, 'D');
-
         doc.setTextColor(46, 125, 50);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.text("RECOMMENDED DOS", margin + 4, y + 6);
 
-        // Print Do's
         let dosY = y + 13;
         doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
-        template.dos.forEach((doItem, k) => {
+        template.dos.forEach((doItem) => {
           const lines = doc.splitTextToSize(`• ${doItem}`, 78);
           doc.text(lines, margin + 4, dosY);
           dosY += (lines.length * 3.5) + 3;
         });
 
-        // Column B: Patient Care Don'ts (Rose/Red banner accent)
-        doc.setFillColor(255, 245, 245); // extremely soft red
+        doc.setFillColor(255, 245, 245);
         doc.rect(margin + 94, y, 86, 75, 'F');
         doc.setDrawColor(255, 205, 210);
         doc.rect(margin + 94, y, 86, 75, 'D');
-
         doc.setTextColor(198, 40, 40);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(9);
         doc.text("HIGH RISK AVOIDANCE (DON'TS)", margin + 98, y + 6);
 
-        // Print Don'ts
         let dontsY = y + 13;
         doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
-        template.donts.forEach((dontItem, k) => {
+        template.donts.forEach((dontItem) => {
           const lines = doc.splitTextToSize(`• ${dontItem}`, 78);
           doc.text(lines, margin + 98, dontsY);
           dontsY += (lines.length * 3.5) + 3;
@@ -887,63 +756,60 @@ export default function App() {
 
         y += 84;
 
-        // Clinical warning notes banner
-        doc.setFillColor(254, 242, 242); // crimson red wash
+        doc.setFillColor(254, 242, 242);
         doc.rect(margin, y, contentWidth, 24, 'F');
         doc.setDrawColor(accentRed[0], accentRed[1], accentRed[2]);
         doc.setLineWidth(0.5);
         doc.rect(margin, y, contentWidth, 24, 'D');
-
         doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8.5);
         doc.text('CRITICAL SAFEGUARDS / CLINICAL WARNING NOTATIONS:', margin + 4, y + 5);
-
         doc.setFont('helvetica', 'normal');
-        doc.setTextColor(127, 29, 29); // dark maroon
+        doc.setTextColor(127, 29, 29);
         doc.setFontSize(8);
         const warnLines = doc.splitTextToSize(template.warningNote, 172);
         doc.text(warnLines, margin + 4, y + 10);
       }
 
-      // Footer of Page 2
       doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
       doc.setLineWidth(0.2);
       doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
-      
       doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
       doc.setFontSize(7);
       doc.text("Approved by Diagnostic QA Hub. Preserving offline records strictly with GDPR/HIPAA container logic.", margin, pageHeight - 11);
       const page2NumTxt = "Page 2 of 2";
       doc.text(page2NumTxt, pageWidth - margin - doc.getTextWidth(page2NumTxt), pageHeight - 11);
 
-      // SAVE DOCUMENT
       const cleanPatientName = record.patient.name.trim().replace(/\s+/g, '_');
       doc.save(`Clinical_Record_${record.id}_${cleanPatientName}.pdf`);
     } catch (err: any) {
-      console.error('PDF construction failed completely:', err);
-      alert('We fell into a container layout exception generating the PDF file: ' + err.message);
+      console.error('PDF construction failed:', err);
+      alert('Failed to generate PDF: ' + err.message);
     }
   };
 
-  // Interactive filters
+  // ---------------------------------------------------------------------------
+  // Filters
+  // ---------------------------------------------------------------------------
   const processedCases = cases.filter(item => {
     const query = searchQuery.toLowerCase();
-    const matchesSearch = 
+    const matchesSearch =
       item.patient.name.toLowerCase().includes(query) ||
       item.finding.primaryFinding.toLowerCase().includes(query) ||
       item.id.toLowerCase().includes(query);
-
     const matchesUrgency = filterUrgency === 'All' || item.finding.urgency === filterUrgency;
-
     return matchesSearch && matchesUrgency;
   });
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-[#f7fafc] text-[#181c1e] font-sans antialiased flex flex-col">
       
       {/* HEADER BAR */}
-      <header className="bg-white border-b border-[#bccac1] fixed top-0 left-0 right-0 z-50 h-14">
+      <header className="bg-white border-b border-[#bccac1] fixed top-0 left-0 right-0 z-50 h-14 print:hidden">
         <div className="flex justify-between items-center w-full px-4 md:px-8 max-w-5xl mx-auto h-full">
           <div 
             onClick={() => { setScreen('home'); stopWebcam(); }}
@@ -1014,7 +880,6 @@ export default function App() {
                     : 'bg-rose-500'
                 }`} />
               </div>
-              
               <span className="hidden sm:inline">
                 {dbStatus === 'online'
                   ? syncStatus === 'synced'
@@ -1026,7 +891,6 @@ export default function App() {
               </span>
             </button>
 
-            {/* Sync dropdown detailed dashboard */}
             {displaySyncDropdown && (
               <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-[#bccac1] rounded-2xl shadow-xl p-4 z-50 text-[#181c1e] text-left">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2.5">
@@ -1043,7 +907,6 @@ export default function App() {
                 </div>
 
                 <div className="space-y-3">
-                  {/* Connection Details */}
                   <div className="p-2.5 bg-[#f1f4f6] rounded-xl border border-[#bccac1] text-[11px] space-y-1.5">
                     <div className="flex justify-between items-center text-[#3d4943]">
                       <span>Server Gateway:</span>
@@ -1063,7 +926,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Sync status metrics */}
                   <div className="flex items-center gap-2 text-xs">
                     <div className={`p-1.5 rounded-lg ${syncStatus === 'synced' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                       {syncStatus === 'synced' ? (
@@ -1077,12 +939,11 @@ export default function App() {
                         {syncStatus === 'synced' ? 'All records are secure' : 'Modifications pending sync'}
                       </p>
                       <p className="text-[10px] text-[#3d4943]">
-                        {cases.length} local {cases.length === 1 ? 'case standard' : 'cases standard'} preserved
+                        {cases.length} local {cases.length === 1 ? 'case' : 'cases'} preserved
                       </p>
                     </div>
                   </div>
 
-                  {/* Bandwidth saver toggle */}
                   <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
                     <div className="flex flex-col">
                       <span className="font-semibold text-slate-800">Auto-Sync Engine</span>
@@ -1099,7 +960,6 @@ export default function App() {
                     </label>
                   </div>
 
-                  {/* Force sync button */}
                   <button
                     onClick={() => {
                       probeDatabaseHealth().then(() => triggerCloudSync(cases));
@@ -1115,7 +975,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Language translation menu dropdown */}
+          {/* Language menu */}
           <div className="relative">
             <button 
               onClick={() => setLangMenuOpen(!langMenuOpen)}
@@ -1130,10 +990,7 @@ export default function App() {
                 {(Object.keys(TRANSLATIONS) as LanguageOption[]).map((langKey) => (
                   <button
                     key={langKey}
-                    onClick={() => {
-                      setLang(langKey);
-                      setLangMenuOpen(false);
-                    }}
+                    onClick={() => { setLang(langKey); setLangMenuOpen(false); }}
                     className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-[#f1f4f6] font-medium ${
                       lang === langKey ? 'text-[#0077b6] font-semibold bg-[#e5e9eb]' : 'text-[#3d4943]'
                     }`}
@@ -1152,128 +1009,118 @@ export default function App() {
         
         {/* VIEW 1: HOME PAGE */}
         {screen === 'home' && (
-          <div className="flex-1 flex flex-col animate-fade-in">
-            <section className="max-w-5xl mx-auto w-full px-4 md:px-8 py-10 md:py-16 flex-1 flex flex-col justify-center">
+          <div className="flex-1 flex flex-col animate-fade-in relative overflow-hidden bg-white">
+            {/* Subtle Intentional Background Gradients */}
+            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#0077b6] blur-[150px] opacity-10 pointer-events-none"></div>
+            <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] rounded-full bg-[#00b4d8] blur-[120px] opacity-10 pointer-events-none"></div>
+            
+            <section className="max-w-5xl mx-auto w-full px-4 md:px-8 py-10 md:py-16 flex-1 flex flex-col justify-center relative z-10">
               <div className="grid grid-cols-1 md:grid-cols-12 gap-12 items-center">
                 
-                {/* Hero section */}
-                <div className="md:col-span-7 flex flex-col gap-6">
-                  <div className="space-y-4">
-                    <span className="inline-flex items-center gap-1.5 px-3.5 py-1 bg-[#d6e0f6] text-[#596376] font-display font-semibold text-xs rounded-full">
-                      <Sparkles className="w-3.5 h-3.5 text-[#0077b6]" />
-                      Community Health Tool
-                    </span>
-                    <h1 className="font-display font-extrabold text-[#181c1e] text-3xl md:text-4xl leading-tight tracking-tight">
-                      {t.tagline}
+                <div className="md:col-span-7 flex flex-col gap-8">
+                  <div className="space-y-6">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#f0f9ff] border border-[#0077b6]/20 rounded-full shadow-sm">
+                      <Sparkles className="w-4 h-4 text-[#0077b6] animate-pulse" />
+                      <span className="text-[#0077b6] font-display font-bold text-xs uppercase tracking-widest">
+                        Next-Gen Clinical Triage
+                      </span>
+                    </div>
+                    <h1 className="font-display font-black text-[#181c1e] text-4xl md:text-5xl lg:text-6xl leading-[1.1] tracking-tight">
+                      Empowering <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0077b6] to-[#00b4d8]">Frontline</span> Healthcare.
                     </h1>
-                    <p className="text-[#3d4943] text-lg leading-relaxed max-w-xl">
-                      {t.subTitle}
+                    <p className="text-[#3d4943] text-lg leading-relaxed max-w-xl font-medium">
+                      DermaDetect utilizes advanced AI to analyze complex dermatological conditions instantly, bridging the gap between community health workers and specialized clinical care.
                     </p>
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-center gap-4">
                     <button 
                       onClick={resetAndStartAssessment}
-                      className="w-full sm:w-auto h-12 px-6 bg-[#0077b6] text-white font-display font-bold text-sm rounded-xl shadow-md hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 group cursor-pointer active:scale-95"
+                      className="w-full sm:w-auto h-14 px-8 bg-[#0077b6] hover:bg-[#005f92] text-white font-display font-bold text-sm tracking-wide rounded-2xl shadow-[0_8px_20px_rgba(0,119,182,0.2)] hover:shadow-[0_12px_25px_rgba(0,119,182,0.3)] transition-all flex items-center justify-center gap-3 group cursor-pointer active:scale-95 border border-[#0077b6]"
                     >
-                      <PlusCircle className="w-5 h-5" />
-                      <span>{t.startAssessment}</span>
+                      <PlusCircle className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
+                      <span>Start Triage Assessment</span>
                     </button>
                     <button 
                       onClick={() => setScreen('case-history')}
-                      className="w-full sm:w-auto h-12 px-6 border-2 border-[#0077b6] text-[#0077b6] bg-white font-display font-bold text-sm rounded-xl hover:bg-[#f1f4f6] transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                      className="w-full sm:w-auto h-14 px-8 bg-white hover:bg-[#f0f9ff] border border-[#bccac1] hover:border-[#0077b6]/30 text-[#0077b6] font-display font-bold text-sm tracking-wide rounded-2xl transition-all flex items-center justify-center gap-3 cursor-pointer group active:scale-95 shadow-sm"
                     >
-                      <History className="w-5 h-5" />
-                      <span>{t.viewPastCases}</span>
+                      <History className="w-5 h-5 text-[#0077b6]" />
+                      <span>Access Case Vault</span>
                     </button>
                   </div>
 
-                  {/* Offline card indicator block */}
-                  <div className="flex items-start gap-3.5 p-4 bg-[#f1f4f6] rounded-xl border border-[#bccac1]">
-                    <div className="flex items-center text-[#0077b6] p-2 bg-white rounded-full shadow-sm">
-                      <WifiOff className="w-5 h-5" />
+                  <div className="flex items-center gap-4 p-5 bg-white rounded-2xl border border-[#bccac1] shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center text-emerald-600 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
+                      <WifiOff className="w-6 h-6" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="font-display font-bold text-sm text-[#181c1e]">{t.offlineBtn}</span>
-                      <span className="text-xs text-[#3d4943] mt-0.5">{t.offlineBody}</span>
+                      <span className="font-display font-bold text-sm text-[#181c1e] tracking-wide">Secure Offline Persistence</span>
+                      <span className="text-xs text-[#3d4943] mt-1 leading-relaxed">Full diagnostic capability retained in remote environments. Synced securely upon reconnection.</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Hero image card illustration */}
                 <div className="md:col-span-5 relative group">
-                  <div className="absolute inset-0 bg-[#0077b6]/10 rounded-2xl transform translate-x-3 translate-y-3 -z-10 transition-transform group-hover:translate-x-1.5 group-hover:translate-y-1.5" />
-                  <div className="aspect-square bg-[#e0e3e5] rounded-2xl overflow-hidden border border-[#bccac1] shadow-md relative">
-                    <img 
-                      src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7K9Gkw4BG40ghUxTPEDx2ma7CEkcuXN3p1ZXoYR0VswVmcqrUv7cXlb1OgsAtyl6aAszzMhgHPG6boMpjFt-401Cach1F4nADZGrYX3rCQov9flBROJXLAjDVBS-4zWAhoWnNxk7fOAhlhZY88nSpbNadBAaUopICdcSd_HrMR76vnNOiAS5N6kcnzt4s8ee6HL6MPSrn9R8iAqxp2bKA960TcZ0VqSDzV-rawtOa-t8VAf1Jdqu1Zxv9lmxiUy5XRb1DQzmWKQ" 
-                      alt="Healthcare Professional with device" 
-                      className="w-full h-full object-cover"
-                    />
-                    
-                    {/* Overlay Assist pill */}
-                    <div className="absolute bottom-5 left-5 bg-white p-3.5 rounded-xl border border-[#bccac1] shadow-xl flex items-center gap-3 transition-transform hover:scale-105">
-                      <div className="w-9 h-9 bg-[#f0f9ff] rounded-full flex items-center justify-center text-[#0077b6]">
-                        <CheckCircle2 className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="font-display font-bold text-xs text-[#181c1e]">Ready to Assist</p>
-                        <p className="text-[10px] text-[#3d4943]">AI Diagnostics Online</p>
+                  <div className="absolute inset-0 bg-gradient-to-tr from-[#0077b6]/20 to-[#00b4d8]/20 rounded-3xl transform translate-x-4 translate-y-4 -z-10 transition-transform duration-500 group-hover:translate-x-2 group-hover:translate-y-2 blur-md" />
+                  <div className="aspect-[4/5] bg-white rounded-3xl overflow-hidden border border-[#bccac1] shadow-xl relative transition-transform duration-500 group-hover:-translate-y-2 p-2">
+                    <div className="w-full h-full rounded-2xl overflow-hidden relative">
+                      <img 
+                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7K9Gkw4BG40ghUxTPEDx2ma7CEkcuXN3p1ZXoYR0VswVmcqrUv7cXlb1OgsAtyl6aAszzMhgHPG6boMpjFt-401Cach1F4nADZGrYX3rCQov9flBROJXLAjDVBS-4zWAhoWnNxk7fOAhlhZY88nSpbNadBAaUopICdcSd_HrMR76vnNOiAS5N6kcnzt4s8ee6HL6MPSrn9R8iAqxp2bKA960TcZ0VqSDzV-rawtOa-t8VAf1Jdqu1Zxv9lmxiUy5XRb1DQzmWKQ" 
+                        alt="Healthcare Professional with device" 
+                        className="w-full h-full object-cover transform scale-105 transition-transform duration-700 group-hover:scale-100"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent z-10 opacity-80" />
+                      <div className="absolute bottom-6 left-6 right-6 z-20">
+                        <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl border border-white shadow-lg flex items-center gap-4 transition-transform duration-500 hover:scale-[1.02]">
+                          <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 shadow-sm border border-emerald-200">
+                            <CheckCircle2 className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="font-display font-bold text-sm text-[#181c1e] tracking-wide">Dinov2 ViT Active</p>
+                            <p className="text-[11px] text-[#3d4943] font-bold tracking-widest uppercase mt-0.5">Systems Nominal</p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-
               </div>
             </section>
 
-            {/* Core features block */}
-            <section className="bg-[#f1f4f6] border-y border-[#bccac1] py-12">
+            <section className="relative z-10 border-t border-[#f1f4f6] bg-[#f8fbff] py-16">
               <div className="max-w-5xl mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-5 rounded-xl border border-[#bccac1]">
-                  <h3 className="font-display text-lg font-bold text-[#0077b6] flex items-center gap-2">
-                    <HeartPulse className="w-5 h-5" />
-                    Rapid Analysis
-                  </h3>
-                  <p className="text-sm text-[#3d4943] mt-2 leading-relaxed">
-                    Instant, high-precision dermatological index estimations to assist health personnel triage field cases.
-                  </p>
-                </div>
-                <div className="bg-white p-5 rounded-xl border border-[#bccac1]">
-                  <h3 className="font-display text-lg font-bold text-[#0077b6] flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5" />
-                    Secure Vault
-                  </h3>
-                  <p className="text-sm text-[#3d4943] mt-2 leading-relaxed">
-                    Patient medical observations, diagnostic records, and key clinical macro images stored with local security integrity checks.
-                  </p>
-                </div>
-                <div className="bg-white p-5 rounded-xl border border-[#bccac1]">
-                  <h3 className="font-display text-lg font-bold text-[#0077b6] flex items-center gap-2">
-                    <BookOpen className="w-5 h-5" />
-                    Direct Referral
-                  </h3>
-                  <p className="text-sm text-[#3d4943] mt-2 leading-relaxed">
-                    Instantly package diagnosed clinical findings into clear formatted Referral Notes for nearby hospital review.
-                  </p>
-                </div>
+                {[
+                  { icon: HeartPulse, title: "Rapid Analysis", desc: "Instant, high-precision dermatological estimations to assist health personnel triage field cases.", color: "text-[#0077b6] bg-[#0077b6]/10 border-[#0077b6]/20" },
+                  { icon: ShieldCheck, title: "Secure Vault", desc: "Patient medical observations, diagnostic records, and key images stored with local security integrity.", color: "text-[#0077b6] bg-[#0077b6]/10 border-[#0077b6]/20" },
+                  { icon: BookOpen, title: "Direct Referral", desc: "Instantly package diagnosed clinical findings into clear formatted Referral Notes for nearby hospitals.", color: "text-[#0077b6] bg-[#0077b6]/10 border-[#0077b6]/20" }
+                ].map((feature, i) => (
+                  <div key={i} className="bg-white p-8 rounded-3xl border border-[#bccac1] hover:border-[#0077b6]/30 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg shadow-sm group">
+                    <div className={`w-12 h-12 rounded-2xl ${feature.color} border flex items-center justify-center mb-6 transform group-hover:scale-110 transition-transform duration-300`}>
+                      <feature.icon className="w-6 h-6" />
+                    </div>
+                    <h3 className="font-display text-xl font-bold text-[#181c1e] tracking-wide mb-3">{feature.title}</h3>
+                    <p className="text-sm text-[#3d4943] leading-relaxed font-medium">
+                      {feature.desc}
+                    </p>
+                  </div>
+                ))}
               </div>
             </section>
           </div>
         )}
 
-        {/* SIDE DIFF SECTIONS FOR STEPS WORKFLOW */}
+        {/* ASSESSMENT WORKFLOW */}
         {(screen === 'assessment-info' || screen === 'assessment-capture' || screen === 'assessment-review' || screen === 'referral-note') && (
           <div className="flex-1 flex flex-col md:flex-row">
             
-            {/* SIDE NAVIGATIONBAR PROGRESS COLUMN */}
-            <aside className="w-full md:w-64 bg-[#f1f4f6] md:border-r border-[#bccac1] py-3 md:py-6 px-4 flex flex-col md:min-h-[calc(100vh-3.5rem)]">
+            <aside className="w-full md:w-64 bg-[#f1f4f6] md:border-r border-[#bccac1] py-3 md:py-6 px-4 flex flex-col md:min-h-[calc(100vh-3.5rem)] print:hidden">
               <div className="mb-6 hidden md:block">
                 <h2 className="font-display font-extrabold text-base text-[#181c1e]">Assessment Progress</h2>
                 <p className="text-xs text-[#3d4943] mt-0.5">Community Workflow</p>
               </div>
 
               <div className="flex md:flex-col gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-none">
-                {/* Step 1 indicator */}
                 <div 
                   onClick={() => { if (screen !== 'assessment-info') setScreen('assessment-info'); }}
                   className={`flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer grow md:grow-0 shrink-0 ${
@@ -1286,13 +1133,8 @@ export default function App() {
                   <span className="font-display text-xs whitespace-nowrap">Step 1: Patient Info</span>
                 </div>
 
-                {/* Step 2 indicator */}
                 <div 
-                  onClick={() => { 
-                    if (patient.name) {
-                      setScreen('assessment-capture');
-                    }
-                  }}
+                  onClick={() => { if (patient.name) setScreen('assessment-capture'); }}
                   className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
                     !patient.name ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                   } grow md:grow-0 shrink-0 ${
@@ -1305,13 +1147,8 @@ export default function App() {
                   <span className="font-display text-xs whitespace-nowrap">Step 2: Skin Capture</span>
                 </div>
 
-                {/* Step 3 indicator */}
                 <div 
-                  onClick={() => {
-                    if (activeAnalysisResult) {
-                      setScreen('assessment-review');
-                    }
-                  }}
+                  onClick={() => { if (activeAnalysisResult) setScreen('assessment-review'); }}
                   className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
                     !activeAnalysisResult ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
                   } grow md:grow-0 shrink-0 ${
@@ -1325,7 +1162,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Secure footer inside side grid */}
               <div className="mt-auto hidden md:block pt-4 border-t border-[#bccac1]">
                 <div className="flex items-center gap-2 px-1 text-[#3d4943]">
                   <ShieldCheck className="w-4 h-4 text-[#0077b6]" />
@@ -1334,10 +1170,9 @@ export default function App() {
               </div>
             </aside>
 
-            {/* FLOW CANVAS PORT AREA */}
             <div className="flex-1 flex flex-col pt-4 md:pt-0">
               
-              {/* FLOW SECTION 1: ENTER INFO */}
+              {/* STEP 1: PATIENT INFO */}
               {screen === 'assessment-info' && (
                 <div className="p-4 md:p-8 flex-1 flex items-center justify-center canvas-bg">
                   <div className="bg-white border border-[#bccac1] rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-sm">
@@ -1383,9 +1218,7 @@ export default function App() {
                               type="button"
                               onClick={() => setPatient({ ...patient, sex: 'Male' })}
                               className={`flex-1 text-xs font-bold transition-all ${
-                                patient.sex === 'Male'
-                                  ? 'bg-[#d6e0f6] text-[#121c2c]'
-                                  : 'text-[#3d4943] hover:bg-[#f1f4f6]'
+                                patient.sex === 'Male' ? 'bg-[#d6e0f6] text-[#121c2c]' : 'text-[#3d4943] hover:bg-[#f1f4f6]'
                               }`}
                             >
                               Male
@@ -1395,9 +1228,7 @@ export default function App() {
                               type="button"
                               onClick={() => setPatient({ ...patient, sex: 'Female' })}
                               className={`flex-1 text-xs font-bold transition-all ${
-                                patient.sex === 'Female'
-                                  ? 'bg-[#d6e0f6] text-[#121c2c]'
-                                  : 'text-[#3d4943] hover:bg-[#f1f4f6]'
+                                patient.sex === 'Female' ? 'bg-[#d6e0f6] text-[#121c2c]' : 'text-[#3d4943] hover:bg-[#f1f4f6]'
                               }`}
                             >
                               Female
@@ -1432,12 +1263,11 @@ export default function App() {
                 </div>
               )}
 
-              {/* FLOW SECTION 2: CAPTURE AREA */}
+              {/* STEP 2: CAPTURE */}
               {screen === 'assessment-capture' && (
                 <div className="p-4 md:p-8 flex-1 canvas-bg">
                   <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                     
-                    {/* Left instructions block */}
                     <div className="space-y-6">
                       <div>
                         <span className="inline-block bg-[#ebeef0] text-[#555f71] px-2.5 py-0.5 rounded-full font-display font-semibold text-[10px] mb-2 uppercase tracking-wide">
@@ -1449,7 +1279,6 @@ export default function App() {
                         </p>
                       </div>
 
-                      {/* Training/Education reference specimen gallery */}
                       <div className="bg-[#f0f9ff] border border-[#bccac1] rounded-xl p-4">
                         <h4 className="font-display font-bold text-xs text-[#0077b6] flex items-center gap-1.5">
                           <PlusCircle className="w-4 h-4" />
@@ -1462,7 +1291,7 @@ export default function App() {
                           {SAMPLE_CASE_TEMPLATES.map((item) => (
                             <button
                               key={item.code}
-                              onClick={() => selectTemplateInstance(item.imageUrl, item.finding)}
+                              onClick={() => selectTemplateInstance(item.imageUrl)}
                               className={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all ${
                                 capturedImage === item.imageUrl
                                   ? 'border-[#0077b6] bg-white ring-2 ring-[#0077b6]'
@@ -1478,7 +1307,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Photo Capture Tips */}
                       <div className="bg-white border border-[#bccac1] p-4 rounded-xl flex gap-3">
                         <div className="p-2 bg-[#d6e0f6] rounded-full text-[#0077b6] h-fit">
                           <Lightbulb className="w-5 h-5" />
@@ -1491,7 +1319,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Interactive Triggers */}
                       <div className="flex flex-col sm:flex-row gap-3">
                         {isCameraActive ? (
                           <button
@@ -1511,7 +1338,7 @@ export default function App() {
                           </button>
                         )}
 
-                        <label className="flex-1 h-11 border-2 border-dashed border-[#0077b6] text-[#0077b6] bg-white rounded-lg font-display font-bold text-sm hover:bg-[#f1f4f6] transition-all flex items-center justify-center gap-2 cursor-pointer transition-colors">
+                        <label className="flex-1 h-11 border-2 border-dashed border-[#0077b6] text-[#0077b6] bg-white rounded-lg font-display font-bold text-sm hover:bg-[#f1f4f6] transition-all flex items-center justify-center gap-2 cursor-pointer">
                           <Upload className="w-5 h-5" />
                           <span>Upload from Gallery</span>
                           <input 
@@ -1523,7 +1350,6 @@ export default function App() {
                         </label>
                       </div>
 
-                      {/* Close camera button */}
                       {isCameraActive && (
                         <button 
                           onClick={stopWebcam}
@@ -1534,14 +1360,11 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* Right Capture preview column */}
                     <div className="space-y-4">
                       <div className="bg-white border rounded-2xl p-4 border-[#bccac1]">
                         <h3 className="font-display text-xs font-bold text-[#181c1e] mb-3 uppercase tracking-wider">Assessment Preview</h3>
                         
-                        {/* Live stream viewport or static image */}
                         <div className="aspect-[4/5] bg-[#ebeef0] border-2 border-dashed border-[#bccac1] rounded-xl overflow-hidden flex flex-col items-center justify-center p-4 relative">
-                          
                           {isCameraActive && !capturedImage && (
                             <video 
                               ref={videoRef} 
@@ -1575,7 +1398,6 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Interactive Analyzer start trigger */}
                         {capturedImage && (
                           <div className="mt-4 p-3 bg-[#f0f9ff] rounded-xl border border-[#bccac1] flex items-center justify-between">
                             <div className="flex items-center gap-2">
@@ -1605,122 +1427,230 @@ export default function App() {
                         </button>
                       )}
                     </div>
-
                   </div>
                 </div>
               )}
 
-              {/* FLOW SECTION 3: ASSESSMENT RESULTS */}
+              {/* STEP 3: RESULTS (Continuous Scroll Report) */}
               {screen === 'assessment-review' && activeAnalysisResult && (
-                <div className="p-4 md:p-8 flex-1 bg-[#f7fafc]">
-                  <div className="max-w-4xl mx-auto space-y-6">
+                <div className="flex-1 bg-white w-full">
+                  <div className="w-full flex flex-col relative print:shadow-none print:border-none print:max-w-none">
                     
-                    <header className="border-b border-[#bccac1] pb-4">
-                      <h2 className="font-display font-extrabold text-2xl text-[#181c1e]">Assessment Results</h2>
-                      <p className="text-xs text-[#3d4943] mt-1.5">
-                        Please review coordinates and secondary findings generated via Gemini multi-modal diagnostic engine before referral.
-                      </p>
-                    </header>
-
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                      
-                      {/* Left Side Findings details container */}
-                      <div className="md:col-span-7 space-y-6">
-                        
-                        {/* Summary details card */}
-                        <div className="bg-white border border-[#bccac1] p-5 rounded-2xl shadow-sm">
-                          <span className="text-[#005f73] font-display font-extrabold text-[10px] tracking-wider uppercase block">
-                            Primary Finding Indicator
-                          </span>
-                          <div className="flex justify-between items-start mt-1.5 mb-4">
-                            <h3 className="font-display font-bold text-xl md:text-2xl text-[#181c1e]">
-                              {activeAnalysisResult.primaryFinding}
-                            </h3>
-                            <div className="bg-[#f0f9ff] px-3 py-1 rounded-xl flex flex-col items-end shrink-0 border border-[#bccac1]">
-                              <span className="font-display font-black text-[#0077b6] text-xl leading-none">
-                                {activeAnalysisResult.confidence}%
-                              </span>
-                              <span className="text-[10px] font-semibold text-[#0077b6] mt-0.5">Confidence</span>
-                            </div>
-                          </div>
-
-                          <div className="h-2.5 w-full bg-[#f1f4f6] rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-[#0077b6]" 
-                              style={{ width: `${activeAnalysisResult.confidence}%` }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Interactive dynamic treatment recommendations/guidelines portal */}
-                        <TreatmentRecommendations 
-                          finding={activeAnalysisResult} 
-                          patient={patient} 
-                          caseId={activeCaseId || 'NEW-CASE'} 
-                        />
+                    {/* Header */}
+                    <div className="bg-[#0077b6] p-6 sm:p-8 text-white flex justify-between items-center print:bg-white print:text-[#181c1e] print:border-b print:border-[#bccac1]">
+                      <div>
+                        <h2 className="font-display font-extrabold text-2xl md:text-3xl tracking-tight">Clinical Assessment Report</h2>
+                        <p className="text-sm font-medium mt-1 opacity-90 print:opacity-100 print:text-[#3d4943]">REF ID: {activeCaseId || 'NEW-CASE'}</p>
                       </div>
-
-                      {/* Right Side lesion preview & urgency level */}
-                      <div className="md:col-span-5 space-y-6">
-                        
-                        {/* Skin preview frame */}
-                        <div className="bg-white border border-[#bccac1] rounded-2xl overflow-hidden shadow-sm">
-                          <div className="p-3 border-b border-[#bccac1] bg-[#f1f4f6] flex justify-between items-center text-xs font-semibold text-[#3d4943]">
-                            <span>Lesion View Specimen</span>
-                            <span className="text-[10px] text-[#3d4943] font-mono select-all uppercase">IMG_CORE_VAULT.jpg</span>
-                          </div>
-                          <div className="aspect-square bg-gray-100 relative">
-                            {capturedImage && (
-                              <img src={capturedImage} alt="Assessment Thumbnail reference" className="w-full h-full object-cover" />
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Triage Urgency Level block indicator */}
-                        <div className={`p-4 rounded-2xl border flex items-start gap-3 shadow-sm ${
-                          activeAnalysisResult.urgency === 'High'
-                            ? 'bg-[#ffdad6] border-[#ba1a1a] text-[#93000a]'
-                            : activeAnalysisResult.urgency === 'Moderate'
-                            ? 'bg-[#ffe0b2] border-[#ffe0b2] text-[#e65100]'
-                            : 'bg-[#e8f5e9] border-[#c8e6c9] text-[#2e7d32]'
-                        }`}>
-                          <div className={`p-1.5 rounded-lg shrink-0 ${
-                            activeAnalysisResult.urgency === 'High' 
-                              ? 'bg-[#ba1a1a] text-white' 
-                              : activeAnalysisResult.urgency === 'Moderate' 
-                              ? 'bg-[#e65100] text-white'
-                              : 'bg-[#2e7d32] text-white'
-                          }`}>
-                            <AlertTriangle className="w-4 h-4" />
-                          </div>
-                          <div className="space-y-1">
-                            <span className="font-display font-extrabold text-xs tracking-wider uppercase block">
-                              Urgency Level: {activeAnalysisResult.urgency}
-                            </span>
-                            <p className="text-xs font-semibold text-[#181c1e] leading-relaxed">
-                              {activeAnalysisResult.urgencyText}
-                            </p>
-                          </div>
-                        </div>
-
+                      <div className="text-right shrink-0 hidden sm:block">
+                        <span className="font-display font-extrabold text-3xl leading-none block">DermaDetect</span>
+                        <span className="text-[10px] font-bold tracking-wider uppercase mt-1 block opacity-90 print:opacity-100 print:text-[#3d4943]">AI Analysis System</span>
                       </div>
                     </div>
 
-                    {/* Operational Action Row */}
-                    <div className="pt-6 border-t border-[#bccac1] flex flex-col sm:flex-row justify-end gap-3">
+                    <div className="p-6 sm:p-8 space-y-8">
+                      {/* Patient Info Block */}
+                      <div>
+                        <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4">Patient Information</h3>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-4 text-sm bg-[#f0f9ff] p-5 rounded-xl border border-[#bccac1] print:bg-white print:p-0 print:border-none print:gap-y-6">
+                          <div>
+                            <span className="text-[#3d4943] font-bold block mb-1">Name</span>
+                            <span className="text-[#181c1e] font-semibold">{patient.name || 'Anonymous'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#3d4943] font-bold block mb-1">Age / Sex</span>
+                            <span className="text-[#181c1e] font-semibold">{patient.age || 'Unknown'} / {patient.sex || 'Unknown'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#3d4943] font-bold block mb-1">Health Worker</span>
+                            <span className="text-[#181c1e] font-semibold">{healthWorkerName}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#3d4943] font-bold block mb-1">Assessment Date</span>
+                            <span className="text-[#181c1e] font-semibold">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          </div>
+                          <div className="col-span-2 md:col-span-4">
+                            <span className="text-[#3d4943] font-bold block mb-1">Reported Symptoms</span>
+                            <span className="text-[#181c1e] font-semibold">{patient.symptoms || 'None provided'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Visual & Prediction Block */}
+                      <div>
+                        <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4 page-break-after-avoid">Visual Analysis & Predictions</h3>
+                        <div className="flex flex-col gap-6 items-stretch page-break-inside-avoid">
+                          {/* Images (Original & Heatmap) */}
+                          <div className={`w-full ${activeAnalysisResult.heatmap_b64 ? 'grid grid-cols-2' : 'flex flex-col'} gap-4 shrink-0`}>
+                            <div className="bg-[#e0e3e5] rounded-xl overflow-hidden border border-[#bccac1] relative aspect-square">
+                              {capturedImage ? (
+                                <img src={capturedImage} alt="Clinical lesion macro view" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="h-full flex items-center justify-center text-[#3d4943] text-sm">No Image Available</div>
+                              )}
+                              <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide">Original</div>
+                            </div>
+                            
+                            {activeAnalysisResult.heatmap_b64 && (
+                              <div className="bg-[#e0e3e5] rounded-xl overflow-hidden border border-[#bccac1] relative aspect-square">
+                                <img src={`data:image/jpeg;base64,${activeAnalysisResult.heatmap_b64}`} alt="GradCAM Saliency Map" className="w-full h-full object-cover" />
+                                <div className="absolute top-2 left-2 bg-[#0077b6]/80 text-white text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide">AI Saliency Map</div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Predictions */}
+                          <div className="flex-1 flex flex-col gap-4">
+                            <div className="bg-[#f1f4f6] border border-[#bccac1] p-5 rounded-xl flex-1 flex flex-col justify-center">
+                              <span className="text-[#3d4943] font-bold text-xs uppercase tracking-wider block mb-1">Primary Finding</span>
+                              <div className="flex justify-between items-center mb-3">
+                                <h3 className="font-display font-extrabold text-2xl text-[#181c1e]">
+                                  {activeAnalysisResult.primaryFinding}
+                                </h3>
+                                <div className="bg-white px-3 py-1.5 rounded-lg border border-[#bccac1] shadow-sm text-center">
+                                  <span className="font-display font-black text-[#0077b6] text-xl block leading-none">{activeAnalysisResult.confidence}%</span>
+                                  <span className="text-[9px] font-bold text-[#3d4943] uppercase tracking-wider">Confidence</span>
+                                </div>
+                              </div>
+                              <div className="h-3 w-full bg-[#e0e3e5] rounded-full overflow-hidden border border-[#bccac1]/50">
+                                <div className="h-full bg-[#0077b6]" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                              </div>
+                            </div>
+
+                            <div className={`p-5 rounded-xl border flex items-center gap-4 ${
+                              activeAnalysisResult.urgency === 'High' ? 'bg-[#ffdad6] border-[#ba1a1a] text-[#93000a]' : 
+                              activeAnalysisResult.urgency === 'Moderate' ? 'bg-[#ffe0b2] border-[#ffe0b2] text-[#e65100]' : 
+                              'bg-[#e8f5e9] border-[#c8e6c9] text-[#2e7d32]'
+                            }`}>
+                              <div className={`p-2 rounded-lg shrink-0 ${
+                                activeAnalysisResult.urgency === 'High' ? 'bg-[#ba1a1a] text-white' : 
+                                activeAnalysisResult.urgency === 'Moderate' ? 'bg-[#e65100] text-white' : 
+                                'bg-[#2e7d32] text-white'
+                              }`}>
+                                <AlertTriangle className="w-6 h-6" />
+                              </div>
+                              <div>
+                                <span className="font-display font-extrabold text-sm tracking-wider uppercase block mb-0.5">
+                                  Triage Urgency: {activeAnalysisResult.urgency}
+                                </span>
+                                <p className="text-sm font-semibold leading-relaxed">
+                                  {activeAnalysisResult.urgencyText}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Groq Response Structure (Narrative & Treatments) */}
+                      <div>
+                        <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4">AI Clinical Evaluation</h3>
+                        
+                        <div className="space-y-6 page-break-inside-avoid">
+                          <div className="bg-white border border-[#bccac1] p-6 rounded-xl shadow-sm text-sm leading-relaxed text-[#181c1e] markdown-body">
+                            {activeAnalysisResult.referralNote ? (
+                              <ReactMarkdown components={{
+                                strong: ({node, ...props}) => <span className="font-bold text-[#181c1e] block mt-4 mb-1" {...props} />
+                              }}>
+                                {activeAnalysisResult.referralNote}
+                              </ReactMarkdown>
+                            ) : (
+                              "No clinical narrative generated."
+                            )}
+                          </div>
+
+                          <div className="print:hidden">
+                            <TreatmentRecommendations 
+                              finding={activeAnalysisResult} 
+                              patient={patient} 
+                              caseId={activeCaseId || 'NEW-CASE'} 
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Signature & Disclaimer (Visible on Print) */}
+                    <div className="mt-12 pt-8 border-t border-[#bccac1] flex justify-between items-end page-break-inside-avoid">
+                      <div className="flex flex-col gap-2">
+                        <span className="italic text-xs text-[#555f71]">Digital Verified Signature</span>
+                        <span className="font-display font-bold text-lg text-[#181c1e]">{patient.healthWorkerName || 'K. Mensah'}</span>
+                        <div className="w-64 h-[1px] bg-[#181c1e] mt-1"></div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 border border-[#bccac1] rounded-lg bg-[#f1f4f6]">
+                          <QrCode className="w-10 h-10 text-[#3d4943]" />
+                        </div>
+                        <div className="text-[10px] text-[#3d4943] font-bold leading-tight">
+                          Verify on<br/>
+                          DermaDetect Secure<br/>
+                          Web Cloud
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-8 mb-6 text-[10px] text-[#555f71] text-center page-break-inside-avoid max-w-3xl mx-auto leading-relaxed">
+                      Disclaimer: This assessment is AI-assisted using the advanced <strong>DermaVision</strong> language model developed by <strong>PreWorks</strong>. It is intended to support, not replace, clinical judgment by a qualified healthcare professional.
+                    </div>
+
+                    {/* Action Footer */}
+                    <div className="bg-[#f1f4f6] p-6 border-t border-[#bccac1] flex flex-col sm:flex-row justify-end gap-4">
                       <button 
-                        onClick={() => setScreen('referral-note')}
-                        className="h-11 px-6 border-2 border-[#0077b6] text-[#0077b6] bg-white font-display font-bold text-sm rounded-xl hover:bg-[#f1f4f6] transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                        onClick={async () => {
+                          if (!activeAnalysisResult) return;
+                          setIsGeneratingPdf(true);
+                          try {
+                            const payload = {
+                              case_id: activeCaseId || `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+                              patient: { ...patient, healthWorkerName },
+                              clinical: {
+                                primaryFinding: activeAnalysisResult.primaryFinding,
+                                confidence: activeAnalysisResult.confidence,
+                                urgency: activeAnalysisResult.urgency,
+                                referralNote: activeAnalysisResult.referralNote,
+                                treatmentNotes: activeAnalysisResult.treatmentNotes,
+                                therapyRegimen: activeAnalysisResult.therapyRegimen,
+                                patientHandout: activeAnalysisResult.patientHandout,
+                                recommendedAction: activeAnalysisResult.recommendedAction
+                              },
+                              images: {
+                                original_b64: capturedImage,
+                                heatmap_b64: activeAnalysisResult.heatmap_b64
+                              }
+                            };
+                            const response = await fetch('/api/generate-pdf', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(payload)
+                            });
+                            if (!response.ok) throw new Error("PDF generation failed");
+                            
+                            const data = await response.json();
+                            if (data.pdf_b64) {
+                              const link = document.createElement('a');
+                              link.href = `data:application/pdf;base64,${data.pdf_b64}`;
+                              link.download = `DermaDetect_Report_${patient.name || 'Patient'}.pdf`;
+                              link.click();
+                            }
+                          } catch (err) {
+                            console.error(err);
+                            alert("Failed to generate PDF report from backend.");
+                          } finally {
+                            setIsGeneratingPdf(false);
+                          }
+                        }}
+                        disabled={isGeneratingPdf}
+                        className="h-12 px-6 border-2 border-[#0077b6] text-[#0077b6] bg-white font-display font-bold text-sm rounded-xl hover:bg-[#e0f2fe] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
                       >
-                        <FileText className="w-4.5 h-4.5" />
-                        <span>Generate Referral Note</span>
+                        {isGeneratingPdf ? <Loader2 className="w-5 h-5 animate-spin" /> : <Printer className="w-5 h-5" />}
+                        <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF Report'}</span>
                       </button>
                       
                       <button 
                         onClick={saveCaseRecord}
-                        className="h-11 px-8 bg-[#0077b6] text-white font-display font-bold text-sm rounded-xl hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow p-3"
+                        className="h-12 px-8 bg-[#0077b6] text-white font-display font-bold text-sm rounded-xl hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
                       >
-                        <Save className="w-4.5 h-4.5" />
+                        <Save className="w-5 h-5" />
                         <span>Save and Register Case</span>
                       </button>
                     </div>
@@ -1729,150 +1659,16 @@ export default function App() {
                 </div>
               )}
 
-              {/* FLOW SECTION 4: CLINICAL REFERRAL NOTE (PRINT PREVIEW DOCUMENT) */}
-              {screen === 'referral-note' && activeAnalysisResult && (
-                <div className="p-4 md:p-8 flex-1 bg-[#f7fafc] grid grid-cols-1 md:grid-cols-12 gap-8 items-start max-w-5xl mx-auto w-full">
-                  
-                  {/* Left panel printable controller */}
-                  <div className="md:col-span-4 space-y-4 no-print grow w-full">
-                    <div className="bg-white border border-[#bccac1] p-4 rounded-xl space-y-3">
-                      <h4 className="font-display font-bold text-xs text-[#181c1e]">Referral Operations</h4>
-                      <p className="text-[11px] text-[#3d4943] leading-relaxed">
-                        This document details diagnosed indicators. Download or print the file directly using browser utilities.
-                      </p>
-                      
-                      <button 
-                        onClick={() => window.print()}
-                        className="w-full h-11 bg-[#0077b6] text-white font-display font-bold text-xs rounded-lg hover:bg-[#0096c7] transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                      >
-                        <Printer className="w-4 h-4" />
-                        <span>Download as PDF / Print</span>
-                      </button>
-
-                      <a 
-                        href={`https://wa.me/?text=DermaDetect%20Referral%20Note%20for%20Patient%20${encodeURIComponent(patient.name)}.%20Finding%20Suspected:%20${encodeURIComponent(activeAnalysisResult.primaryFinding)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full h-11 border border-[#0077b6] text-[#0077b6] font-display font-bold text-xs rounded-lg hover:bg-[#f1f4f6] transition-all flex items-center justify-center gap-2"
-                      >
-                        <Share2 className="w-4 h-4" />
-                        <span>Share details via WhatsApp</span>
-                      </a>
-                    </div>
-
-                    <button 
-                      onClick={() => setScreen('assessment-review')}
-                      className="w-full h-9 bg-[#f1f4f6] border border-[#bccac1] rounded-lg text-xs font-bold text-[#3d4943] hover:bg-[#e5e9eb] transition-all"
-                    >
-                      Return to Step 3 Review
-                    </button>
-                  </div>
-
-                  {/* Document container */}
-                  <div className="md:col-span-8 flex justify-center w-full">
-                    <div className="bg-white border border-[#bccac1] w-full max-w-xl p-4 sm:p-8 rounded-lg shadow-md flex flex-col text-[#181c1e] sm:aspect-[1/1.4] sm:min-h-[700px] border-box relative">
-                      
-                      {/* Document header styling */}
-                      <div className="flex justify-between items-start border-b border-[#bccac1] pb-6 mb-6">
-                        <div>
-                          <h2 className="font-display font-extrabold text-xl md:text-2xl tracking-tight text-[#181c1e]">Clinical Referral Note</h2>
-                          <p className="text-[10px] font-bold text-[#0077b6] tracking-widest mt-1 uppercase select-all">REF ID: {activeCaseId}</p>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-display font-extrabold text-2xl text-[#0077b6] leading-none block">DD</span>
-                          <span className="text-[8px] font-bold text-[#3d4943] tracking-wider uppercase mt-1 block">DermaDetect AI Analysis</span>
-                        </div>
-                      </div>
-
-                      {/* Patient metadata records form */}
-                      <div className="grid grid-cols-2 gap-y-4 gap-x-6 border-b border-[#f1f4f6] pb-6 mb-6 text-sm">
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block">Patient Name</span>
-                          <span className="font-bold text-[#181c1e] text-base">{patient.name || 'Anonymous'}</span>
-                        </div>
-                        <div className="space-y-1 text-right">
-                          <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block">Date of Assessment</span>
-                          <span className="text-[#181c1e]">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                        </div>
-                        <div className="space-y-1">
-                          <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block">Age / Sex</span>
-                          <span className="text-[#181c1e] font-medium">{patient.age || 'Unknown'} Years / {patient.sex || 'Unknown'}</span>
-                        </div>
-                        <div className="space-y-1 text-right">
-                          <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block">Health Worker</span>
-                          <span className="font-medium text-[#181c1e]">{healthWorkerName}</span>
-                        </div>
-                      </div>
-
-                      {/* Clinical indicator diagnostic badge */}
-                      <div className="bg-[#f7fafc] border border-[#bccac1] p-4 rounded-xl mb-6 space-y-4">
-                        <span className="text-[9px] font-bold text-[#0077b6] uppercase tracking-widest block">Diagnostic Indicator</span>
-                        
-                        <div className="flex justify-between items-start gap-4">
-                          <div>
-                            <p className="font-display font-bold text-lg text-[#181c1e]">Suspected {activeAnalysisResult.primaryFinding}</p>
-                            <p className="text-xs text-[#3d4943] mt-0.5">Confidence Score: {activeAnalysisResult.confidence}%</p>
-                          </div>
-                          
-                          <span className="px-3 py-1 bg-[#ffdad6] text-[#93000a] text-[10px] font-bold rounded-full border border-[#ba1a1a] shrink-0 leading-none">
-                            {activeAnalysisResult.urgency === 'High' ? 'URGENT TRIAGE' : 'ROUTINE CHECK'}
-                          </span>
-                        </div>
-
-                        {/* Thumbnail of lesion */}
-                        <div className="w-full h-28 bg-[#e0e3e5] rounded-xl overflow-hidden relative">
-                          {capturedImage && (
-                            <img src={capturedImage} alt="Clinical lesion macro view" className="w-full h-full object-cover" />
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Recommendation block notes */}
-                      <div className="space-y-2 mb-8">
-                        <span className="text-[9px] font-bold text-[#3d4943] uppercase tracking-widest block">Recommended Action</span>
-                        <p className="text-sm text-[#181c1e] leading-relaxed font-semibold">
-                          {activeAnalysisResult.recommendedAction}
-                        </p>
-                        {patient.symptoms && (
-                          <p className="text-xs text-[#3d4943] italic mt-2 p-2 border-l-2 border-[#0077b6] bg-[#f1f4f6]">
-                            "Symptom description: {patient.symptoms}"
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Signature line stamp QR verification */}
-                      <div className="mt-auto pt-6 border-t border-[#bccac1] flex justify-between items-end">
-                        <div className="w-40 border-b border-[#3d4943] pb-1">
-                          <p className="font-mono text-[9px] text-[#3d4943] italic">Digital Verified Signature</p>
-                          <p className="font-display font-bold text-xs text-[#181c1e] mt-1.5">{healthWorkerName}</p>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <div className="p-1 bg-[#ebeef0] border border-[#bccac1] rounded">
-                            <QrCode className="w-10 h-10 text-[#3d4943]" />
-                          </div>
-                          <span className="text-[8px] font-bold text-[#3d4943] leading-tight block w-20">
-                            Verify on DermaDetect Secure Web Cloud
-                          </span>
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-
-                </div>
-              )}
-
+              {/* Deprecated Step 4 Referral Note removed, functionality merged into Step 3 */}
             </div>
           </div>
         )}
 
-        {/* VIEW 5: CASE HISTORY TAB */}
+        {/* CASE HISTORY */}
         {screen === 'case-history' && (
           <section className="flex-1 max-w-5xl mx-auto w-full px-4 md:px-8 py-8 animate-fade-in flex flex-col justify-between">
             <div className="grow space-y-6">
               
-              {/* Header filter grid */}
               <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#bccac1] pb-4">
                 <div>
                   <h1 className="font-display font-extrabold text-2xl md:text-3xl text-[#181c1e]">Case History Logs</h1>
@@ -1881,10 +1677,7 @@ export default function App() {
                   </p>
                 </div>
 
-                {/* Operations column panel */}
                 <div className="flex flex-wrap items-center gap-3">
-                  
-                  {/* Search box inline */}
                   <div className="relative min-w-[200px] shrink-0">
                     <Search className="w-4 h-4 text-[#3d4943] absolute left-3.5 top-1/2 transform -translate-y-1/2" />
                     <input 
@@ -1896,7 +1689,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* Urgency selection dropdown */}
                   <div className="flex items-center gap-1.5">
                     <Filter className="w-4 h-4 text-[#3d4943]" />
                     <select
@@ -1913,7 +1705,6 @@ export default function App() {
 
                   <button 
                     onClick={() => {
-                      // Simulated clean spreadsheet export
                       const blob = new Blob([JSON.stringify(cases, null, 2)], { type: 'application/json' });
                       const url = URL.createObjectURL(blob);
                       const link = document.createElement('a');
@@ -1937,9 +1728,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Patient Cases table grid */}
               <div className="bg-white border border-[#bccac1] rounded-2xl overflow-hidden shadow-sm">
-                {/* Desktop View Table */}
+                {/* Desktop table */}
                 <div className="hidden md:block overflow-x-auto scrollbar-none">
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -1974,9 +1764,7 @@ export default function App() {
                                 </div>
                               </div>
                             </td>
-                            <td className="px-5 py-4 text-[#3d4943]">
-                              {item.date}
-                            </td>
+                            <td className="px-5 py-4 text-[#3d4943]">{item.date}</td>
                             <td className="px-5 py-4">
                               <span className="px-2.5 py-1 rounded bg-[#ebeef0] text-[#181c1e] font-bold text-[10px] border border-[#bccac1]">
                                 {item.finding?.primaryFinding || 'Unclassified'}
@@ -2005,20 +1793,14 @@ export default function App() {
                             <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-end gap-1.5">
                                 <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    downloadPdfRecord(item);
-                                  }}
+                                  onClick={(e) => { e.stopPropagation(); downloadPdfRecord(item); }}
                                   title="Download Full Clinical PDF"
                                   className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-emerald-200 cursor-pointer"
                                 >
                                   <Download className="w-4.5 h-4.5" />
                                 </button>
                                 <button 
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCaseToDelete(item);
-                                  }}
+                                  onClick={(e) => { e.stopPropagation(); setCaseToDelete(item); }}
                                   title="Delete Case Record"
                                   className="text-rose-600 hover:bg-rose-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
                                 >
@@ -2046,7 +1828,7 @@ export default function App() {
                   </table>
                 </div>
 
-                {/* Mobile View Roster Card List (Optimized for Mobile Screens) */}
+                {/* Mobile cards */}
                 <div className="block md:hidden divide-y divide-[#ebeef0]">
                   {processedCases.length > 0 ? (
                     processedCases.map((item) => (
@@ -2061,29 +1843,16 @@ export default function App() {
                               {item.patient.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-bold text-sm text-[#181c1e] truncate">
-                                {item.patient.name}
-                              </p>
-                              <p className="text-[10px] text-[#3d4943] font-mono leading-none">
-                                REF: {item.id}
-                              </p>
+                              <p className="font-bold text-sm text-[#181c1e] truncate">{item.patient.name}</p>
+                              <p className="text-[10px] text-[#3d4943] font-mono leading-none">REF: {item.id}</p>
                             </div>
                           </div>
-
                           <div className="flex items-center gap-1.5 shrink-0">
                             <span className={`w-2 h-2 rounded-full ${
-                              item.finding?.urgency === 'High' 
-                                ? 'bg-[#ba1a1a]' 
-                                : item.finding?.urgency === 'Moderate' 
-                                ? 'bg-[#e65100]' 
-                                : 'bg-[#2e7d32]'
+                              item.finding?.urgency === 'High' ? 'bg-[#ba1a1a]' : item.finding?.urgency === 'Moderate' ? 'bg-[#e65100]' : 'bg-[#2e7d32]'
                             }`} />
                             <span className={`font-bold text-xs ${
-                              item.finding?.urgency === 'High' 
-                                ? 'text-[#ba1a1a]' 
-                                : item.finding?.urgency === 'Moderate' 
-                                ? 'text-[#e65100]' 
-                                : 'text-[#2e7d32]'
+                              item.finding?.urgency === 'High' ? 'text-[#ba1a1a]' : item.finding?.urgency === 'Moderate' ? 'text-[#e65100]' : 'text-[#2e7d32]'
                             }`}>
                               {item.finding?.urgency || 'Low'}
                             </span>
@@ -2101,32 +1870,21 @@ export default function App() {
                               </span>
                             </div>
                           </div>
-
-                          {/* Mobile quick actions */}
                           <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                downloadPdfRecord(item);
-                              }}
-                              title="Download Full Clinical PDF"
+                              onClick={(e) => { e.stopPropagation(); downloadPdfRecord(item); }}
                               className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-100 bg-emerald-50/30 cursor-pointer"
                             >
                               <Download className="w-4 h-4" />
                             </button>
                             <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setCaseToDelete(item);
-                              }}
-                              title="Delete Case Record"
+                              onClick={(e) => { e.stopPropagation(); setCaseToDelete(item); }}
                               className="w-8 h-8 flex items-center justify-center text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100 bg-rose-50/30 cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => setSelectedDetailsCase(item)}
-                              title="View Case Details"
                               className="w-8 h-8 flex items-center justify-center text-[#0077b6] hover:bg-[#f0f9ff] rounded-lg transition-colors border border-sky-100 bg-sky-50/30 cursor-pointer"
                             >
                               <ChevronRight className="w-4 h-4" />
@@ -2156,33 +1914,42 @@ export default function App() {
                   </div>
                 </footer>
               </div>
-
             </div>
           </section>
         )}
-
       </main>
 
-      {/* FOOTER BAR */}
-      <footer className="bg-[#ebeef0] border-t border-[#bccac1] py-4 select-none no-print">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 flex flex-col sm:flex-row justify-between items-center gap-3">
-          <div className="text-xs font-semibold text-[#555f71]">
-            © {new Date().getFullYear()} DermaDetect • Community Health Digital System
-          </div>
-          <div className="flex items-center gap-4 text-xs font-semibold text-[#3d4943]">
-            <div className="flex items-center gap-1.5 text-[#0077b6]">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#0077b6] animate-pulse" />
-              <span>Offline Cache Mode: Active</span>
+      {/* FOOTER */}
+      <footer className="bg-white border-t border-[#bccac1] py-6 select-none print:hidden relative overflow-hidden">
+        <div className="max-w-5xl mx-auto px-4 md:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 relative z-10">
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-[#0077b6] flex items-center justify-center text-white font-bold text-sm shadow-sm">DD</div>
+              <span className="font-display font-extrabold text-[#0077b6] text-sm tracking-widest uppercase">DermaDetect</span>
             </div>
-            <span className="text-[#bccac1]">|</span>
-            <button onClick={() => alert("DermaDetect clinic platform HIPAA Compliant data vault encryption active. No personal metrics are logged remotely.")} className="hover:underline">Privacy Policy</button>
-            <span className="text-[#bccac1]">|</span>
-            <button onClick={() => alert("Supported cases: Tinea Corporis, Basal Cell, Melanoma, Seborrheic, Contact Dermatitis. Contact support@dermadetect.org")} className="hover:underline">Support</button>
+            <span className="hidden sm:inline text-[#bccac1]">•</span>
+            <span className="text-xs font-bold text-[#3d4943] tracking-wide">
+              © {new Date().getFullYear()} Community Health Digital System
+            </span>
+          </div>
+          <div className="flex items-center gap-5 text-xs font-bold text-[#3d4943]">
+            <div className="flex items-center gap-2 bg-[#f0f9ff] px-3 py-1.5 rounded-full border border-[#0077b6]/20">
+              <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />
+              <span className="tracking-wide">Offline Cache <span className="text-[#0077b6]">Active</span></span>
+            </div>
+            <button onClick={() => alert("DermaDetect clinic platform HIPAA Compliant data vault encryption active. No personal metrics are logged remotely.")} className="hover:text-[#0077b6] transition-colors duration-300 relative group">
+              Privacy
+              <span className="absolute -bottom-1 left-0 w-0 h-[2px] bg-[#0077b6] transition-all duration-300 group-hover:w-full rounded"></span>
+            </button>
+            <button onClick={() => alert("Supported cases: Tinea Corporis, Basal Cell, Melanoma, Seborrheic, Contact Dermatitis. Contact support@dermadetect.org")} className="hover:text-[#0077b6] transition-colors duration-300 relative group">
+              Support
+              <span className="absolute -bottom-1 left-0 w-0 h-[2px] bg-[#0077b6] transition-all duration-300 group-hover:w-full rounded"></span>
+            </button>
           </div>
         </div>
       </footer>
 
-      {/* MODAL 1: PREDICTION ANALYZING LOADER */}
+      {/* MODAL: ANALYSIS LOADER */}
       {analysisLoading && (
         <div className="fixed inset-0 bg-[#181c1e]/60 backdrop-blur-md flex items-center justify-center z-[100] px-4">
           <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center border border-[#bccac1] shadow-2xl space-y-4">
@@ -2195,15 +1962,14 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL 2: CASE DETAIL VIEW MODAL */}
+      {/* MODAL: CASE DETAIL VIEW */}
       {selectedDetailsCase && (
         <div 
-          className="fixed inset-0 bg-[#181c1e]/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4 transition-opacity duration-300"
+          className="fixed inset-0 bg-[#181c1e]/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4"
           onClick={(e) => { if(e.target === e.currentTarget) setSelectedDetailsCase(null); }}
         >
-          <div className="bg-white w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl transform transition-transform duration-300 border border-[#bccac1]">
+          <div className="bg-white w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-[#bccac1]">
             
-            {/* Modal Header */}
             <div className="p-5 border-b border-[#bccac1] flex justify-between items-center bg-[#f1f4f6]">
               <div>
                 <span className="text-[10px] text-[#0077b6] font-black tracking-widest uppercase block leading-none">Case History Vault</span>
@@ -2219,12 +1985,9 @@ export default function App() {
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="p-6 md:p-8 space-y-6 max-h-[72vh] overflow-y-auto">
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-[#f1f4f6]">
-                
-                {/* Patient section */}
                 <div className="space-y-4 text-xs font-semibold">
                   <h3 className="font-display font-bold text-xs text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
                     Patient Profile
@@ -2239,13 +2002,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Diagnostics details */}
                 <div className="space-y-4 text-xs font-semibold">
                   <h3 className="font-display font-bold text-xs text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
                     Medical Indicators
                   </h3>
                   <div className="space-y-1">
-                    <p className="text-[10px] text-[#6d7a73] uppercase tracking-wider block">Primary Diagnosed finding</p>
+                    <p className="text-[10px] text-[#6d7a73] uppercase tracking-wider block">Primary Diagnosed Finding</p>
                     <p className="text-sm font-bold text-[#181c1e]">{selectedDetailsCase.finding.primaryFinding}</p>
                   </div>
                   <div className="space-y-1">
@@ -2261,15 +2023,12 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-
               </div>
 
-              {/* Patient lesion image preview */}
               <div className="space-y-3">
                 <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
                   Lesion Specimen Media
                 </h3>
-                
                 <div className={`aspect-video rounded-xl overflow-hidden relative border border-[#bccac1] bg-[#f1f4f6] cursor-pointer group ${zoomImage ? 'h-auto max-h-[450px]' : ''}`}>
                   <img 
                     src={selectedDetailsCase.image} 
@@ -2286,7 +2045,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Case Symptoms Description */}
               {selectedDetailsCase.patient.symptoms && (
                 <div className="space-y-2">
                   <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
@@ -2298,7 +2056,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Case Treatment notes */}
               <div className="space-y-3">
                 <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
                   Clinical Recommended Actions
@@ -2314,7 +2071,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Modal operations footer row */}
             <div className="p-4 bg-[#f1f4f6] flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#bccac1]">
               <button 
                 onClick={() => setCaseToDelete(selectedDetailsCase)}
@@ -2342,7 +2098,6 @@ export default function App() {
                 
                 <button 
                   onClick={() => {
-                    // Preload details as active results to trigger printable Referral flow
                     setPatient(selectedDetailsCase.patient);
                     setCapturedImage(selectedDetailsCase.image);
                     setActiveAnalysisResult(selectedDetailsCase.finding);
@@ -2357,29 +2112,26 @@ export default function App() {
                 </button>
               </div>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* SUCCESS CHECKMARK CELEBRATION MODAL */}
+      {/* MODAL: SUCCESS ANIMATION */}
       {showSuccessAnimation && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-8 text-center shadow-2xl border border-slate-100 transform scale-100 transition-all">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-8 text-center shadow-2xl border border-slate-100">
             <div className="checkmark-wrapper mb-6">
               <svg className="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
                 <circle className="checkmark-circle" cx="26" cy="26" r="25" fill="none" />
                 <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
               </svg>
             </div>
-            
             <h3 className="font-display text-xl font-bold text-slate-900 tracking-tight mb-2">
               Case Saved Successfully
             </h3>
             <p className="text-sm text-slate-500 leading-relaxed mb-4">
               Diagnostic findings have been safely synced to patient records.
             </p>
-            
             <div className="inline-flex items-center gap-1.5 text-xs text-[#0077b6] font-mono font-bold bg-[#f0f9ff] px-3 py-1.5 rounded-lg">
               <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />
               REF ID: {activeCaseId}
@@ -2388,10 +2140,10 @@ export default function App() {
         </div>
       )}
 
-      {/* DELETE CONFIRMATION SYSTEM DIALOG */}
+      {/* MODAL: DELETE CONFIRMATION */}
       {caseToDelete && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 transform scale-100 transition-all space-y-4">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 space-y-4">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-6 h-6 animate-pulse" />
@@ -2401,12 +2153,11 @@ export default function App() {
                   Delete Patient Case Record
                 </h3>
                 <p className="text-xs text-[#6d7a73]">
-                  You are about to permanently remove this case history from localized memory cache. This process is irreversible.
+                  You are about to permanently remove this case history from local and server storage. This process is irreversible.
                 </p>
               </div>
             </div>
 
-            {/* Case Details Summary for visibility verification */}
             <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
               <div className="flex justify-between items-center text-slate-500">
                 <span>Patient Full Name:</span>
@@ -2441,7 +2192,7 @@ export default function App() {
         </div>
       )}
 
-      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      {/* MOBILE BOTTOM NAV */}
       <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-[#bccac1] z-40 flex items-center justify-around px-4 md:hidden no-print shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
         <button 
           onClick={() => { setScreen('home'); stopWebcam(); }}
@@ -2475,7 +2226,6 @@ export default function App() {
           <span>Logs History</span>
         </button>
       </div>
-
     </div>
   );
 }
