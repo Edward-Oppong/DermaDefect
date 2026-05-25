@@ -1574,7 +1574,7 @@ export default function App() {
                     <div className="mt-12 pt-8 border-t border-[#bccac1] flex justify-between items-end page-break-inside-avoid">
                       <div className="flex flex-col gap-2">
                         <span className="italic text-xs text-[#555f71]">Digital Verified Signature</span>
-                        <span className="font-display font-bold text-lg text-[#181c1e]">{patient.healthWorkerName || 'K. Mensah'}</span>
+                        <span className="font-display font-bold text-lg text-[#181c1e]">{healthWorkerName || 'Unknown Worker'}</span>
                         <div className="w-64 h-[1px] bg-[#181c1e] mt-1"></div>
                       </div>
                       <div className="flex items-center gap-3">
