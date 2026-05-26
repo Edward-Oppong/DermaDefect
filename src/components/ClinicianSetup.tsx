@@ -122,43 +122,45 @@ export const ClinicianSetup: React.FC<Props> = ({ onComplete }) => {
      }`;
 
   return (
-    <div className="min-h-screen bg-[#F0F4F8] flex items-center justify-center p-4">
+    <div className="min-h-screen relative flex items-center justify-center p-4 select-none bg-[#001B2E]">
       
-      {/* Background pattern */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-         <img 
-      src="https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=2400&q=80" 
-      alt="Clinical medical macro observation"
-      className="w-full h-full object-cover object-center scale-100 opacity-45 mix-blend-luminosity filter contrast-125 brightness-110"
-    />
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#00A6FB]/5 rounded-full blur-[120px]" />
-        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-[#001B2E]/5 rounded-full blur-[100px]" />
+      {/* FULL-SCREEN TRUE IMMERSIVE BACKGROUND */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        <img 
+          src="https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=2400&q=80" 
+          alt="Clinical medical macro observation environment"
+          className="w-full h-full object-cover object-center scale-100 opacity-20 filter brightness-75 contrast-125 saturate-50"
+        />
+        {/* Soft focal vignettes to keep the card content beautifully legible */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#001B2E]/90 via-transparent to-[#001B2E]/40" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[#00A6FB]/10 rounded-full blur-[140px]" />
       </div>
 
+      {/* SETUP MULTI-STEP INTERFACE */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
-        className="w-full max-w-md relative"
+        className="w-full max-w-md relative z-10"
       >
-        {/* Header */}
+        {/* Header Block */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#001B2E] mb-4 shadow-lg">
-            <span className="font-black text-white text-lg tracking-tight">DD</span>
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md border border-white/10 mb-4 shadow-xl">
+            <span className="font-display font-black text-[#00A6FB] text-xl tracking-tight">DD</span>
           </div>
-          <h1 className="font-display font-bold text-2xl text-[#001B2E] tracking-tight">
+          <h1 className="font-display font-bold text-2xl text-white tracking-tight">
             Clinician Profile Setup
           </h1>
-          <p className="text-sm text-slate-500 mt-1.5 font-normal">
-            This information will appear on all clinical reports and referral notes.
+          <p className="text-xs text-slate-300 mt-2 font-normal max-w-xs mx-auto leading-relaxed">
+            This information will appear on all clinical triage reports and local health referral notes.
           </p>
         </div>
 
-        {/* Step indicator */}
+        {/* Flat Step Progress Track */}
         <div className="flex items-center gap-3 mb-6 px-1">
           <div className="flex items-center gap-2 flex-1">
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-              step >= 1 ? 'bg-[#00A6FB] text-white' : 'bg-slate-200 text-slate-500'
+              step >= 1 ? 'bg-[#00A6FB] text-white shadow-md shadow-[#00A6FB]/20' : 'bg-white/10 text-slate-400'
             }`}>
               {step > 1 ? <CheckCircle2 className="w-4 h-4" /> : '1'}
             </div>
@@ -166,38 +168,38 @@ export const ClinicianSetup: React.FC<Props> = ({ onComplete }) => {
               step === 1 ? 'text-[#00A6FB]' : 'text-slate-400'
             }`}>Personal Info</span>
           </div>
-          <div className="h-px flex-1 bg-slate-200" />
+          <div className="h-px flex-1 bg-white/10" />
           <div className="flex items-center gap-2 flex-1 justify-end">
             <span className={`text-xs font-semibold transition-colors ${
               step === 2 ? 'text-[#00A6FB]' : 'text-slate-400'
             }`}>Facility Info</span>
             <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-              step >= 2 ? 'bg-[#00A6FB] text-white' : 'bg-slate-200 text-slate-500'
+              step >= 2 ? 'bg-[#00A6FB] text-white shadow-md shadow-[#00A6FB]/20' : 'bg-white/10 text-slate-400'
             }`}>2</div>
           </div>
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        {/* Clean White Profile Card Asset */}
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200/80 overflow-hidden">
           <AnimatePresence mode="wait">
 
             {/* STEP 1: Personal Info */}
             {step === 1 && (
               <motion.div
                 key="step1"
-                initial={{ opacity: 0, x: -20 }}
+                initial={{ opacity: 0, x: -16 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                transition={{ duration: 0.25 }}
+                exit={{ opacity: 0, x: -16 }}
+                transition={{ duration: 0.2 }}
                 className="p-6 space-y-4"
               >
-                <div className="flex items-center gap-2 mb-5">
+                <div className="flex items-center gap-2.5 mb-5">
                   <div className="w-8 h-8 rounded-lg bg-[#00A6FB]/10 flex items-center justify-center">
                     <User className="w-4 h-4 text-[#00A6FB]" />
                   </div>
                   <div>
                     <h2 className="font-display font-bold text-sm text-[#001B2E]">Personal Information</h2>
-                    <p className="text-[10px] text-slate-400">Your identity on all clinical documents</p>
+                    <p className="text-[10px] text-slate-400 font-sans tracking-wide">Identity criteria for reference records</p>
                   </div>
                 </div>
 
@@ -249,7 +251,7 @@ export const ClinicianSetup: React.FC<Props> = ({ onComplete }) => {
 
                 <button
                   onClick={handleNext}
-                  className="w-full h-11 bg-[#00A6FB] hover:bg-[#008cc4] text-white font-display font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 mt-2 shadow-sm active:scale-[0.98]"
+                  className="w-full h-11 bg-[#00A6FB] hover:bg-[#008cc4] text-white font-display font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 mt-2 shadow-sm active:scale-[0.99]"
                 >
                   <span>Continue to Facility Info</span>
                   <ChevronRight className="w-4 h-4" />
@@ -261,19 +263,19 @@ export const ClinicianSetup: React.FC<Props> = ({ onComplete }) => {
             {step === 2 && (
               <motion.div
                 key="step2"
-                initial={{ opacity: 0, x: 20 }}
+                initial={{ opacity: 0, x: 16 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ duration: 0.25 }}
+                exit={{ opacity: 0, x: 16 }}
+                transition={{ duration: 0.2 }}
                 className="p-6 space-y-4"
               >
-                <div className="flex items-center gap-2 mb-5">
+                <div className="flex items-center gap-2.5 mb-5">
                   <div className="w-8 h-8 rounded-lg bg-[#00A6FB]/10 flex items-center justify-center">
                     <Building2 className="w-4 h-4 text-[#00A6FB]" />
                   </div>
                   <div>
                     <h2 className="font-display font-bold text-sm text-[#001B2E]">Facility Information</h2>
-                    <p className="text-[10px] text-slate-400">Your clinic details for referral documents</p>
+                    <p className="text-[10px] text-slate-400 font-sans tracking-wide">Origin clinic details for case tracking</p>
                   </div>
                 </div>
 
@@ -329,15 +331,15 @@ export const ClinicianSetup: React.FC<Props> = ({ onComplete }) => {
                 <div className="flex gap-3 mt-2">
                   <button
                     onClick={() => setStep(1)}
-                    className="h-11 px-5 border border-slate-200 text-slate-600 font-display font-bold text-sm rounded-xl hover:bg-slate-50 transition-all"
+                    className="h-11 px-5 border border-slate-200 text-slate-600 bg-white font-display font-semibold text-sm rounded-xl hover:bg-slate-50 transition-all"
                   >
                     Back
                   </button>
                   <button
                     onClick={handleComplete}
-                    className="flex-1 h-11 bg-[#001B2E] hover:bg-[#003554] text-white font-display font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.98]"
+                    className="flex-1 h-11 bg-[#001B2E] hover:bg-[#002b47] text-white font-display font-bold text-sm rounded-xl transition-all flex items-center justify-center gap-2 shadow-sm active:scale-[0.99]"
                   >
-                    <CheckCircle2 className="w-4 h-4" />
+                    <CheckCircle2 className="w-4 h-4 text-[#00A6FB]" />
                     <span>Save Profile & Continue</span>
                   </button>
                 </div>
@@ -347,10 +349,10 @@ export const ClinicianSetup: React.FC<Props> = ({ onComplete }) => {
           </AnimatePresence>
         </div>
 
-        {/* Privacy note */}
-        <div className="flex items-center justify-center gap-2 mt-5 text-[11px] text-slate-400">
-          <Shield className="w-3.5 h-3.5" />
-          <span>Saved locally on this device only. Never uploaded to any server.</span>
+        {/* Secure Local Storage Footer Anchor */}
+        <div className="flex items-center justify-center gap-2 mt-5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+          <Shield className="w-3.5 h-3.5 text-[#00A6FB]" />
+          <span>Local Storage Enclave Active — Zero Cloud Upload</span>
         </div>
       </motion.div>
     </div>
