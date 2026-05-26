@@ -1,0 +1,307 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&family=Atkinson+Hyperlegible+Next:ital,wght@0,300..700;1,300..700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f7fafc;
+  color: #181c1e;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.canvas-bg {
+  background-image: radial-gradient(circle at 2px 2px, #e2e8f0 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* Elegant SVG Animated Checkmark - Lottie style */
+@keyframes stroke {
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes scale {
+  0%, 100% {
+    transform: none;
+  }
+  50% {
+    transform: scale3d(1.1, 1.1, 1);
+  }
+}
+
+@keyframes fill {
+  100% {
+    box-shadow: inset 0px 0px 0px 45px #0077b6;
+  }
+}
+
+.checkmark-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.checkmark-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  stroke-width: 4;
+  stroke-miterlimit: 10;
+  stroke: #0077b6;
+  fill: none;
+  animation: stroke 0.5s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+.checkmark {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: block;
+  stroke-width: 4;
+  stroke: #fff;
+  stroke-miterlimit: 10;
+  box-shadow: inset 0px 0px 0px #0077b6;
+  animation: fill .3s ease-in-out .3s forwards, scale .2s ease-in-out .6s entries;
+}
+
+.checkmark-check {
+  transform-origin: 50% 50%;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.6s forwards;
+}
+
+@keyframes slide-scan {
+  0%, 100% {
+    top: 0%;
+  }
+  50% {
+    top: 100%;
+  }
+}
+
+/* Custom Landing Page Keyframes & Animations */
+@keyframes drift {
+  0% {
+    transform: translateY(100vh) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.4;
+  }
+  85% {
+    opacity: 0.4;
+  }
+  100% {
+    transform: translateY(-10vh) scale(1);
+    opacity: 0;
+  }
+}
+
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  background: white;
+  pointer-events: none;
+  animation: drift var(--duration, 8s) linear infinite;
+  opacity: 0;
+}
+
+@keyframes ticker-scroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-33.333%, 0, 0);
+  }
+}
+
+.animate-ticker {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 35s linear infinite;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+.floating-mockup {
+  animation: float 5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer-button {
+  background: linear-gradient(90deg, #1D9E75 0%, #29be8f 25%, #1D9E75 50%, #29be8f 75%, #1D9E75 100%);
+  background-size: 200% auto;
+  animation: shimmer 4s linear infinite;
+}
+
+.shimmer-button:hover {
+  animation-play-state: paused;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes wave-drift {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+
+.animate-wave {
+  display: flex;
+  width: 200%;
+  animation: wave-drift 40s linear infinite;
+}
+
+/* Duall-purpose print/screen referral note styles */
+@media print {
+  /* Remove action buttons and unrelated layout */
+  .no-print, .action-buttons { 
+    display: none !important; 
+  }
+  
+  /* Avoid page break inside key sections */
+  .avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Reset layout structure for print */
+  body { 
+    background: white !important; 
+    color: black !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Core layout to fill container */
+  .print-wrapper {
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .two-column { 
+    display: block !important; 
+  }
+  
+  .left-column, .right-column { 
+    width: 100% !important; 
+    margin-bottom: 20px !important;
+  }
+
+  /* Color adjustments */
+  .header-band { 
+    background-color: #0A1628 !important; 
+    color: white !important; 
+    -webkit-print-color-adjust: exact; 
+    print-color-adjust: exact; 
+  }
+  
+  .alert-stripe { 
+    background-color: white !important; 
+    color: black !important;
+    border: 2px solid black !important; 
+    -webkit-print-color-adjust: exact; 
+    print-color-adjust: exact; 
+  }
+  .alert-stripe.urgent { 
+    border-width: 3px !important; 
+  }
+  
+  .ai-assessment-card { 
+    background-color: white !important; 
+    border-left: 3px solid black !important; 
+    border-top: 1px solid #ddd !important;
+    border-right: 1px solid #ddd !important;
+    border-bottom: 1px solid #ddd !important;
+    box-shadow: none !important;
+  }
+  
+  .confidence-bar { 
+    display: none !important; 
+  }
+  .confidence-text { 
+    display: block !important; 
+  }
+  
+  .urgency-badge { 
+    background-color: white !important; 
+    border: 1.5px solid black !important; 
+    color: black !important; 
+    padding: 2px 8px !important;
+  }
+  
+  .patient-photo { 
+    filter: grayscale(100%) !important; 
+    border: 1px solid black !important;
+  }
+
+  .footer-full { 
+    display: none !important; 
+  }
+  .footer-print { 
+    display: block !important; 
+    font-size: 9pt !important; 
+    color: #333 !important; 
+    border-t: 1px solid black !important;
+    padding-top: 8px !important;
+    margin-top: 20px !important;
+  }
+
+  * { 
+    box-shadow: none !important; 
+    text-shadow: none !important; 
+  }
+  
+  @page { 
+    size: A4; 
+    margin: 15mm 15mm 15mm 15mm; 
+  }
+}
+
+
+
+
+
