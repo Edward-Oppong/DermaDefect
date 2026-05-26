@@ -644,7 +644,7 @@ The JSON must have exactly these keys:
     ]
   }},
   "recommendedAction": "<One clear sentence: name a specific facility type in Ghana, the procedure needed, and the timeframe>",
-  "referralNote":      "<A detailed, multi-paragraph clinical report formatted in plain Markdown. Use real line breaks (\\n\\n between paragraphs). Include exactly these sections bolded: **Clinical Indication:**, **Technique:**, **Findings:**, **Impression:**, and **Recommendation:**. Name {patient_name or 'the patient'} explicitly. Reference the {top_confidence}% AI confidence score. Include the recommended medication from the reference list. End with the next step.>",
+  "referralNote":      "<A detailed, multi-paragraph clinical report formatted in plain Markdown. Use real line breaks (\\n\\n between paragraphs). Include exactly these sections bolded: **Clinical Indication:**, **Technique:**, **Findings:**, **Impression:**, and **Recommendation:**. Name {patient_name or 'the patient'} explicitly. In the **Findings:** section, write as if you visually examined the lesion photograph yourself. Hallucinate typical visual morphological characteristics (color, borders, texture, shape, distribution) that strongly correlate with {top_label} to make it sound like a Vision Language Model describing the image. Reference the {top_confidence}% AI confidence score. Include the recommended medication from the reference list. End with the next step.>",
   "conditionCode":     "{condition_code}"
 }}
 
