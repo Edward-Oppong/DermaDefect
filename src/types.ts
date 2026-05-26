@@ -17,8 +17,11 @@ export interface DiagnosticResult {
   urgencyText: string;
   treatmentNotes: string[];
   recommendedAction: string;
+  referralNote?: string;
   conditionCode: string;
   heatmap_b64?: string;
+  allPredictions?: Array<{ label: string; confidence: number }>;
+  model_version?: string;
   therapyRegimen?: {
     medication: string;
     regimen: string;

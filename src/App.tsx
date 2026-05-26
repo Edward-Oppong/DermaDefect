@@ -102,6 +102,14 @@ export default function App() {
 
   const [caseToDelete, setCaseToDelete] = useState<CaseRecord | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [showReportPreview, setShowReportPreview] = useState(false);
+
+  // Sanitise referralNote — converts JSON-escaped \n back to real newlines
+  const sanitiseReferralNote = (note: string): string => {
+    return note
+      .replace(/\\n\\n/g, '\n\n')
+      .replace(/\\n/g, '\n');
+  };
 
   // ---------------------------------------------------------------------------
   // Database cloud sync state
@@ -1549,13 +1557,16 @@ export default function App() {
                         <div className="space-y-6 page-break-inside-avoid">
                           <div className="bg-white border border-[#bccac1] p-6 rounded-xl shadow-sm text-sm leading-relaxed text-[#181c1e] markdown-body">
                             {activeAnalysisResult.referralNote ? (
-                              <ReactMarkdown components={{
-                                strong: ({node, ...props}) => <span className="font-bold text-[#181c1e] block mt-4 mb-1" {...props} />
-                              }}>
-                                {activeAnalysisResult.referralNote}
+                              <ReactMarkdown
+                                components={{
+                                  strong: ({node, ...props}) => <span className="font-bold text-[#0077b6] block mt-5 mb-1.5 text-xs uppercase tracking-wider border-b border-[#f1f4f6] pb-1" {...props} />,
+                                  p:      ({node, ...props}) => <p className="text-sm text-[#3d4943] leading-relaxed mb-3" {...props} />,
+                                }}
+                              >
+                                {sanitiseReferralNote(activeAnalysisResult.referralNote)}
                               </ReactMarkdown>
                             ) : (
-                              "No clinical narrative generated."
+                              <p className="text-sm text-slate-400 italic">No clinical narrative generated.</p>
                             )}
                           </div>
 
@@ -1594,7 +1605,17 @@ export default function App() {
                     </div>
 
                     {/* Action Footer */}
-                    <div className="bg-[#f1f4f6] p-6 border-t border-[#bccac1] flex flex-col sm:flex-row justify-end gap-4">
+                    <div className="bg-[#f1f4f6] p-6 border-t border-[#bccac1] flex flex-col sm:flex-row justify-end gap-3">
+                      {/* Preview button */}
+                      <button
+                        onClick={() => setShowReportPreview(true)}
+                        className="h-12 px-6 border-2 border-[#3d4943] text-[#3d4943] bg-white font-display font-bold text-sm rounded-xl hover:bg-[#f1f4f6] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                      >
+                        <Search className="w-5 h-5" />
+                        <span>Preview Report</span>
+                      </button>
+
+                      {/* PDF export button */}
                       <button 
                         onClick={async () => {
                           if (!activeAnalysisResult) return;
@@ -2226,6 +2247,234 @@ export default function App() {
           <span>Logs History</span>
         </button>
       </div>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          REPORT PREVIEW MODAL
+          Full-screen slide-up overlay showing the complete clinical
+          report before the user commits to PDF export.
+          ═══════════════════════════════════════════════════════════════ */}
+      {showReportPreview && activeAnalysisResult && (
+        <div
+          className="fixed inset-0 z-[100] flex flex-col bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowReportPreview(false); }}
+        >
+          <div className="relative flex flex-col bg-white w-full h-full max-w-4xl mx-auto shadow-2xl overflow-hidden animate-slide-up md:my-4 md:rounded-2xl md:h-[calc(100vh-2rem)]">
+
+            {/* Modal header */}
+            <div className="bg-[#0077b6] px-6 py-4 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="font-display font-extrabold text-white text-lg tracking-tight">
+                  Report Preview
+                </h2>
+                <p className="text-xs text-white/80 mt-0.5">
+                  REF: {activeCaseId || 'NEW-CASE'} &mdash; Review before exporting PDF
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    if (!activeAnalysisResult) return;
+                    setIsGeneratingPdf(true);
+                    try {
+                      const payload = {
+                        case_id: activeCaseId || `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+                        patient: { ...patient, healthWorkerName },
+                        clinical: {
+                          primaryFinding: activeAnalysisResult.primaryFinding,
+                          confidence: activeAnalysisResult.confidence,
+                          urgency: activeAnalysisResult.urgency,
+                          referralNote: activeAnalysisResult.referralNote,
+                          treatmentNotes: activeAnalysisResult.treatmentNotes,
+                          therapyRegimen: activeAnalysisResult.therapyRegimen,
+                          patientHandout: activeAnalysisResult.patientHandout,
+                          recommendedAction: activeAnalysisResult.recommendedAction
+                        },
+                        images: { original_b64: capturedImage, heatmap_b64: activeAnalysisResult.heatmap_b64 }
+                      };
+                      const response = await fetch('/api/generate-pdf', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                      });
+                      if (!response.ok) throw new Error('PDF generation failed');
+                      const data = await response.json();
+                      if (data.pdf_b64) {
+                        const link = document.createElement('a');
+                        link.href = `data:application/pdf;base64,${data.pdf_b64}`;
+                        link.download = `DermaDetect_Report_${patient.name || 'Patient'}.pdf`;
+                        link.click();
+                        setShowReportPreview(false);
+                      }
+                    } catch (err) {
+                      console.error(err);
+                      alert('Failed to generate PDF. Please try again.');
+                    } finally {
+                      setIsGeneratingPdf(false);
+                    }
+                  }}
+                  disabled={isGeneratingPdf}
+                  className="h-9 px-4 bg-white text-[#0077b6] font-display font-bold text-xs rounded-lg hover:bg-[#e0f2fe] transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  <span>{isGeneratingPdf ? 'Generating...' : 'Export PDF'}</span>
+                </button>
+                <button
+                  onClick={() => setShowReportPreview(false)}
+                  className="w-9 h-9 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal scrollable body */}
+            <div className="flex-1 overflow-y-auto bg-[#f7fafc]">
+              <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+
+                {/* Patient info strip */}
+                <div className="bg-white rounded-xl border border-[#bccac1] p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm shadow-sm">
+                  {[
+                    { label: 'Patient', value: patient.name || 'Anonymous' },
+                    { label: 'Age / Sex', value: `${patient.age || '—'} / ${patient.sex || '—'}` },
+                    { label: 'Health Worker', value: healthWorkerName },
+                    { label: 'Date', value: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) },
+                  ].map((item, i) => (
+                    <div key={i}>
+                      <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block mb-0.5">{item.label}</span>
+                      <span className="font-semibold text-[#181c1e] text-xs">{item.value}</span>
+                    </div>
+                  ))}
+                  {patient.symptoms && (
+                    <div className="col-span-2 md:col-span-4">
+                      <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block mb-0.5">Reported Symptoms</span>
+                      <span className="font-semibold text-[#181c1e] text-xs">{patient.symptoms}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Primary finding banner */}
+                <div className={`rounded-xl border p-5 flex items-center gap-4 ${
+                  activeAnalysisResult.urgency === 'High'     ? 'bg-rose-50 border-rose-200' :
+                  activeAnalysisResult.urgency === 'Moderate' ? 'bg-amber-50 border-amber-200' :
+                                                                'bg-emerald-50 border-emerald-200'
+                }`}>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Primary AI Finding</span>
+                    <h3 className="font-display font-extrabold text-xl text-[#181c1e]">{activeAnalysisResult.primaryFinding}</h3>
+                    <p className="text-xs mt-1 font-semibold text-slate-600">
+                      {activeAnalysisResult.confidence}% confidence &nbsp;·&nbsp; Urgency:&nbsp;
+                      <span className={`font-bold ${
+                        activeAnalysisResult.urgency === 'High' ? 'text-rose-600' :
+                        activeAnalysisResult.urgency === 'Moderate' ? 'text-amber-600' : 'text-emerald-600'
+                      }`}>{activeAnalysisResult.urgency}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{activeAnalysisResult.urgencyText}</p>
+                  </div>
+                  {capturedImage && (
+                    <img src={capturedImage} alt="Lesion" className="w-20 h-20 object-cover rounded-xl border border-[#bccac1] shrink-0 ml-auto" />
+                  )}
+                </div>
+
+                {/* Referral note */}
+                <div className="bg-white rounded-xl border border-[#bccac1] p-6 shadow-sm">
+                  <h4 className="font-display font-bold text-xs text-[#0077b6] uppercase tracking-wider mb-4 border-b border-[#f1f4f6] pb-2">
+                    AI Clinical Evaluation
+                  </h4>
+                  {activeAnalysisResult.referralNote ? (
+                    <ReactMarkdown
+                      components={{
+                        strong: ({node, ...props}) => <span className="font-bold text-[#0077b6] block mt-5 mb-1.5 text-xs uppercase tracking-wider border-b border-[#f1f4f6] pb-1" {...props} />,
+                        p:      ({node, ...props}) => <p className="text-sm text-[#3d4943] leading-relaxed mb-3" {...props} />,
+                      }}
+                    >
+                      {sanitiseReferralNote(activeAnalysisResult.referralNote)}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="text-sm text-slate-400 italic">No clinical narrative generated.</p>
+                  )}
+                </div>
+
+                {/* Recommended action */}
+                {activeAnalysisResult.recommendedAction && (
+                  <div className="bg-[#f0f9ff] border border-[#0077b6]/20 rounded-xl p-4 flex items-start gap-3">
+                    <FileText className="w-4 h-4 text-[#0077b6] mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-[10px] font-bold text-[#0077b6] uppercase tracking-wider block mb-1">Recommended Action</span>
+                      <p className="text-sm font-semibold text-[#181c1e] leading-relaxed">{activeAnalysisResult.recommendedAction}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Immediate care steps */}
+                {activeAnalysisResult.treatmentNotes?.length > 0 && (
+                  <div className="bg-white rounded-xl border border-[#bccac1] p-5 shadow-sm">
+                    <h4 className="font-display font-bold text-xs text-[#0077b6] uppercase tracking-wider mb-3 border-b border-[#f1f4f6] pb-2">
+                      Immediate Care Steps
+                    </h4>
+                    <ul className="space-y-2">
+                      {activeAnalysisResult.treatmentNotes.map((note, i) => (
+                        <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
+                          <span className="w-5 h-5 rounded-full bg-[#0077b6] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                          {note}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Therapy regimen summary */}
+                {activeAnalysisResult.therapyRegimen && (
+                  <div className="bg-white rounded-xl border border-[#bccac1] p-5 shadow-sm">
+                    <h4 className="font-display font-bold text-xs text-[#0077b6] uppercase tracking-wider mb-3 border-b border-[#f1f4f6] pb-2">
+                      Pharmacological Regimen
+                    </h4>
+                    <div className="space-y-2 text-xs">
+                      <div><span className="text-[10px] text-slate-400 uppercase tracking-widest block mb-0.5">Medication</span><span className="font-bold text-[#0077b6]">{activeAnalysisResult.therapyRegimen.medication}</span></div>
+                      <div><span className="text-[10px] text-slate-400 uppercase tracking-widest block mb-0.5">Dosage</span><span className="font-mono text-slate-800">{activeAnalysisResult.therapyRegimen.dosage}</span></div>
+                      <div className="p-3 bg-amber-50 rounded-lg border border-amber-100 mt-2">
+                        <span className="text-[9px] text-amber-700 uppercase tracking-widest font-bold block mb-0.5">Contraindications</span>
+                        <p className="text-[11px] text-amber-900">{activeAnalysisResult.therapyRegimen.contraindications}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Patient dos/donts summary */}
+                {activeAnalysisResult.patientHandout && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4">
+                      <h5 className="font-bold text-xs text-emerald-700 uppercase tracking-wide mb-2.5">Patient Do's</h5>
+                      <ul className="space-y-1.5">
+                        {activeAnalysisResult.patientHandout.dos.map((d, i) => (
+                          <li key={i} className="flex gap-2 text-[11px] text-slate-700 leading-relaxed">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 mt-1.5" />{d}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4">
+                      <h5 className="font-bold text-xs text-rose-700 uppercase tracking-wide mb-2.5">Patient Don'ts</h5>
+                      <ul className="space-y-1.5">
+                        {activeAnalysisResult.patientHandout.donts.map((d, i) => (
+                          <li key={i} className="flex gap-2 text-[11px] text-slate-700 leading-relaxed">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 mt-1.5" />{d}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+
+                {/* Disclaimer */}
+                <p className="text-[10px] text-slate-400 text-center leading-relaxed pb-4">
+                  This is an AI-assisted assessment using DermaVision. It is intended to support, not replace, clinical judgment by a qualified healthcare professional.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
