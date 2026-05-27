@@ -1020,7 +1020,7 @@ export default function App() {
                             </div>
                             <p className="text-xs text-slate-500 leading-relaxed">This structured note details the verified findings and can be printed or shared.</p>
                             <div className="space-y-2 pt-2">
-                              <button onClick={() => window.print()} className="w-full h-11 bg-[#082F49] hover:bg-[#082F49]/30 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                              <button onClick={() => window.print()} className="w-full h-11 bg-[#082F49] hover:bg-[#032D49]/30 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
                                 <Printer className="w-4 h-4" /><span>Download as PDF</span>
                               </button>
                               <a href={`https://wa.me/?text=DermaDetect%20Referral%20Note%20for%20${encodeURIComponent(patient.name||'Patient')}%20—%20${encodeURIComponent(activeAnalysisResult.primaryFinding)}%20—%20${isHigh?'URGENT':isMod?'MODERATE':'MILD'}%20urgency.`} target="_blank" rel="noreferrer" className="w-full h-11 bg-[#082F49]/40 hover:bg-[#082F49]/60 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
@@ -1037,7 +1037,7 @@ export default function App() {
                         <div className="lg:col-span-8 flex justify-center w-full print-wrapper">
                           <div className="bg-white border-l-[4px] border-y border-r border-slate-200 w-full max-w-2xl p-6 md:p-8 rounded-xl shadow-md flex flex-col text-[#0A1628] font-sans leading-relaxed">
                             {/* Header band */}
-                            <div className="flex justify-between items-center bg-[#082F49] text-white px-5 py-4 rounded-lg mb-4 h-16">
+                            <div className="flex justify-between items-center bg-[#0a3369] text-white px-5 py-4 rounded-lg mb-4 h-16">
                               <div className="flex items-center gap-3">
                                 <div className="w-9 h-9 rounded-md bg-white/20 flex items-center justify-center font-black text-white shrink-0">DD</div>
                                 <div>
