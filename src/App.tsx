@@ -1020,7 +1020,7 @@ export default function App() {
                             </div>
                             <p className="text-xs text-slate-500 leading-relaxed">This structured note details the verified findings and can be printed or shared.</p>
                             <div className="space-y-2 pt-2">
-                              <button onClick={() => window.print()} className="w-full h-11 bg-[#082F49] hover:bg-[#15805f] text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                              <button onClick={() => window.print()} className="w-full h-11 bg-[#082F49] hover:bg-[#082F49]/30 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
                                 <Printer className="w-4 h-4" /><span>Download as PDF</span>
                               </button>
                               <a href={`https://wa.me/?text=DermaDetect%20Referral%20Note%20for%20${encodeURIComponent(patient.name||'Patient')}%20—%20${encodeURIComponent(activeAnalysisResult.primaryFinding)}%20—%20${isHigh?'URGENT':isMod?'MODERATE':'MILD'}%20urgency.`} target="_blank" rel="noreferrer" className="w-full h-11 bg-[#082F49]/40 hover:bg-[#082F49]/60 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
