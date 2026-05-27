@@ -649,14 +649,15 @@ export default function App() {
 
       doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
       doc.text('Detection confidence', col2X + 4, cardStartY + 19);
-      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold');
+      const barColor = isHigh ? [225, 29, 72] : isMod ? [245, 158, 11] : [16, 185, 129]; // Rose-600, Amber-500, Emerald-600
+      doc.setTextColor(barColor[0], barColor[1], barColor[2]); doc.setFont('helvetica', 'bold');
       const confStr = `${activeAnalysisResult.confidence}%`;
       doc.text(confStr, col2X + col2Width - 4 - doc.getTextWidth(confStr), cardStartY + 19);
 
       // confidence visual bar
       doc.setFillColor(241, 245, 249);
       doc.rect(col2X + 4, cardStartY + 21.5, col2Width - 8, 1.2, 'F');
-      doc.setFillColor(8, 47, 73);
+      doc.setFillColor(barColor[0], barColor[1], barColor[2]);
       doc.rect(col2X + 4, cardStartY + 21.5, (col2Width - 8) * (activeAnalysisResult.confidence / 100), 1.2, 'F');
 
       // Urgency badge with zero glyph glitches
@@ -1408,12 +1409,12 @@ export default function App() {
                               <div className="flex justify-between items-start mt-1.5 mb-4">
                                 <h3 className="font-display font-bold text-xl md:text-2xl text-slate-900">{activeAnalysisResult.primaryFinding}</h3>
                                 <div className="bg-slate-50 px-3 py-1 rounded-xl flex flex-col items-end shrink-0 border border-slate-200">
-                                  <span className="font-display font-bold text-[#00A6FB] text-xl leading-none">{activeAnalysisResult.confidence}%</span>
+                                  <span className={`font-display font-bold text-xl leading-none ${activeAnalysisResult.urgency === 'High' ? 'text-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'text-amber-500' : 'text-emerald-600'}`}>{activeAnalysisResult.confidence}%</span>
                                   <span className="text-[9px] font-semibold text-slate-400 mt-0.5 uppercase tracking-wider">Match</span>
                                 </div>
                               </div>
                               <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-[#00A6FB]" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                                <div className={`h-full rounded-full ${activeAnalysisResult.urgency === 'High' ? 'bg-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${activeAnalysisResult.confidence}%` }} />
                               </div>
                             </div>
                             <div>
@@ -1645,10 +1646,10 @@ export default function App() {
                                     <h3 className="font-display font-black text-[#0A1628] text-base leading-snug">{activeAnalysisResult.primaryFinding}</h3>
                                     <div className="flex justify-between items-center text-[11px] font-medium text-slate-500">
                                       <span>Detection confidence</span>
-                                      <span className="font-mono font-bold text-[#082F49]">{activeAnalysisResult.confidence}%</span>
+                                      <span className={`font-mono font-bold ${activeAnalysisResult.urgency === 'High' ? 'text-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'text-amber-500' : 'text-emerald-600'}`}>{activeAnalysisResult.confidence}%</span>
                                     </div>
                                     <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                      <div className="h-full bg-[#082F49] rounded-full" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                                      <div className={`h-full rounded-full ${activeAnalysisResult.urgency === 'High' ? 'bg-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${activeAnalysisResult.confidence}%` }} />
                                     </div>
                                   </div>
                                   <div className="pt-1">
