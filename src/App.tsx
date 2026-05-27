@@ -75,6 +75,33 @@ export default function App() {
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
   const [referralNoteLoading, setReferralNoteLoading] = useState(false);
 
+  // ── Prescribed Medication (Editable for Referral) ────────────────────────
+  const [prescribedMedication, setPrescribedMedication] = useState<string>('');
+  const [prescribedRegimen, setPrescribedRegimen] = useState<string>('');
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'card' | 'pdf'>('card');
+
+  useEffect(() => {
+    if (activeAnalysisResult) {
+      if (activeAnalysisResult.therapyRegimen) {
+        setPrescribedMedication(activeAnalysisResult.therapyRegimen.medication || '');
+        setPrescribedRegimen(activeAnalysisResult.therapyRegimen.regimen || '');
+      } else {
+        setPrescribedMedication('');
+        setPrescribedRegimen('');
+      }
+    }
+  }, [activeAnalysisResult]);
+
+  useEffect(() => {
+    if (screen === 'referral-note' && activeAnalysisResult) {
+      const timer = setTimeout(() => {
+        generateReferralNotePdf('preview');
+      }, 500); // 500ms debounce to avoid lagging during typing
+      return () => clearTimeout(timer);
+    }
+  }, [prescribedMedication, prescribedRegimen, activeAnalysisResult, screen]);
+
   // ── Case history UI ────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUrgency, setFilterUrgency] = useState<'All' | 'High' | 'Moderate' | 'Low'>('All');
@@ -309,15 +336,27 @@ export default function App() {
   // ── Save case ──────────────────────────────────────────────────────────────
   const saveCaseRecord = async () => {
     if (!activeAnalysisResult || !capturedImage) return;
+    const updatedFinding = {
+      ...activeAnalysisResult,
+      therapyRegimen: {
+        ...activeAnalysisResult.therapyRegimen,
+        medication: prescribedMedication,
+        regimen: prescribedRegimen,
+        dosage: activeAnalysisResult.therapyRegimen?.dosage || '',
+        contraindications: activeAnalysisResult.therapyRegimen?.contraindications || '',
+        warningNote: activeAnalysisResult.therapyRegimen?.warningNote || '',
+      }
+    };
     const newRecord: CaseRecord = {
       id: activeCaseId,
       patient: { ...patient },
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      finding: activeAnalysisResult,
+      finding: updatedFinding,
       image: capturedImage,
       healthWorker: clinician?.name ?? 'Unknown',
       saved: true,
     };
+    setActiveAnalysisResult(updatedFinding);
     syncCasesToStorage([newRecord, ...cases]);
     try { await fetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newRecord) }); }
     catch { console.warn('Failed to persist case to server'); }
@@ -340,6 +379,455 @@ export default function App() {
   const clinicianDistrict = clinician?.district     ?? '';
   const clinicianRegion   = clinician?.region       ?? '';
   const clinicianContact  = clinician?.contact      ?? '';
+
+  const downloadReferralNotePdf = () => {
+    if (!activeAnalysisResult) return;
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = 210; const pageHeight = 297; const margin = 12; const contentWidth = 186;
+
+      // Colors
+      const navyDark = [10, 51, 105];       // #0a3369 — Header background
+      const borderSlate = [226, 232, 240];  // #e2e8f0
+      
+      const urgencyStr = activeAnalysisResult.urgency || 'Low';
+      const isHigh = urgencyStr === 'High';
+      const isMod = urgencyStr === 'Moderate';
+      
+      const urgencyColor = isHigh ? [216, 90, 48] : isMod ? [239, 159, 39] : [8, 47, 73]; // #D85A30, #EF9F27, #082F49
+      
+      // Clean non-Unicode alerts to prevent '%T' glitch
+      const urgencyTextStr = isHigh 
+        ? 'URGENT — Immediate referral required. Do not delay.' 
+        : isMod 
+          ? 'MODERATE — Refer to clinic within 3 days for assessment and treatment.' 
+          : 'MILD — Can be managed locally. Refer if no improvement in 7 days.';
+      
+      const cleanRefId = activeCaseId || `DD-${new Date().getFullYear()}-00847`;
+
+      let y = margin;
+
+      // 1. Header Band
+      doc.setFillColor(navyDark[0], navyDark[1], navyDark[2]);
+      doc.rect(margin, y, contentWidth, 18, 'F');
+      
+      // Logo & Brand text on left
+      doc.setFillColor(255, 255, 255, 0.2);
+      doc.rect(margin + 5, y + 4, 10, 10, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      doc.text('DD', margin + 7.5, y + 10.5);
+
+      doc.setFontSize(11);
+      doc.text('DermaDetect', margin + 18, y + 8);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      doc.setTextColor(230, 240, 255);
+      doc.text('AI-Powered Skin Assessment', margin + 18, y + 12);
+
+      // Title on right
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+      const titleStr = 'CLINICAL REFERRAL NOTE';
+      doc.text(titleStr, margin + contentWidth - 5 - doc.getTextWidth(titleStr), y + 8);
+      
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      doc.setTextColor(230, 240, 255);
+      const refStr = `REF: ${cleanRefId}`;
+      doc.text(refStr, margin + contentWidth - 5 - doc.getTextWidth(refStr), y + 12);
+
+      y += 22;
+
+      // 2. Alert Stripe (Zero glyph glitches, smaller text size to avoid clipping)
+      doc.setFillColor(urgencyColor[0], urgencyColor[1], urgencyColor[2]);
+      doc.rect(margin, y, contentWidth, 9, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); // reduced to 7.5 to fit perfectly
+      
+      // Draw a tiny native white circle instead of Unicode bullet to prevent %T glitch
+      doc.setFillColor(255, 255, 255);
+      const alertTextX = margin + (contentWidth - doc.getTextWidth(urgencyTextStr)) / 2;
+      doc.circle(alertTextX - 2.5, y + 4.2, 0.7, 'F');
+      doc.text(urgencyTextStr, alertTextX + 1.5, y + 6.2);
+
+      y += 15;
+
+      const col1Width = 100;
+      const col2Width = contentWidth - col1Width - 8; // 78
+      const col2X = margin + col1Width + 8;
+
+      let leftY = y;
+      let rightY = y;
+
+      // ── LEFT COLUMN ─────────────────────────────────────────────────────────
+      
+      // Patient Info
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text('PATIENT INFORMATION', margin, leftY);
+      leftY += 2;
+      doc.setDrawColor(204, 251, 241); doc.setLineWidth(0.4);
+      doc.line(margin, leftY, margin + col1Width, leftY);
+      leftY += 4;
+
+      const patientRows = [
+        ['Full Name', patient.name || '—'],
+        ['Contact Number', patient.contactNumber || '—'],
+        ['Age', patient.age ? `${patient.age} years` : '—'],
+        ['Sex', patient.sex || '—'],
+        ['Date of Visit', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })],
+        ['Patient ID', cleanRefId],
+      ];
+
+      doc.setFontSize(7.5);
+      patientRows.forEach(([lbl, val]) => {
+        doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal');
+        doc.text(lbl, margin, leftY);
+        doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold');
+        doc.text(val, margin + 35, leftY);
+        leftY += 4.5;
+      });
+
+      leftY += 3;
+
+      // Referring Health Worker
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text('REFERRING HEALTH WORKER', margin, leftY);
+      leftY += 2;
+      doc.line(margin, leftY, margin + col1Width, leftY);
+      leftY += 4;
+
+      const workerRows = [
+        ['Name', clinicianName],
+        ['Role', clinicianRole],
+        ['Facility Name', clinicianFacility],
+        ['District', clinicianDistrict || '—'],
+        ['Region', clinicianRegion ? `${clinicianRegion} Region` : '—'],
+        ['Contact', clinicianContact || '—'],
+      ];
+
+      doc.setFontSize(7.5);
+      workerRows.forEach(([lbl, val]) => {
+        doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal');
+        doc.text(lbl, margin, leftY);
+        doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold');
+        doc.text(val, margin + 35, leftY);
+        leftY += 4.5;
+      });
+
+      leftY += 3;
+
+      // Refer To
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text('REFER TO', margin, leftY);
+      leftY += 2;
+      doc.line(margin, leftY, margin + col1Width, leftY);
+      leftY += 4;
+
+      const referRows = [
+        ['Facility Type', 'District Hospital / Dermatology Clinic'],
+        ['Department', 'Dermatology / General OPD'],
+        ['Urgency', isHigh ? 'Immediate — Do Not Delay' : isMod ? 'Within 3 days' : 'Within 7 days'],
+      ];
+
+      doc.setFontSize(7.5);
+      referRows.forEach(([lbl, val]) => {
+        doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal');
+        doc.text(lbl, margin, leftY);
+        if (lbl === 'Urgency') {
+          doc.setTextColor(urgencyColor[0], urgencyColor[1], urgencyColor[2]); doc.setFont('helvetica', 'bold');
+        } else {
+          doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold');
+        }
+        doc.text(val, margin + 35, leftY);
+        leftY += 4.5;
+      });
+
+      leftY += 3;
+
+      // Health Worker's Notes
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text("HEALTH WORKER'S NOTES", margin, leftY);
+      leftY += 2;
+      doc.line(margin, leftY, margin + col1Width, leftY);
+      leftY += 3.5;
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(241, 245, 249); doc.setLineWidth(0.2);
+      doc.rect(margin, leftY, col1Width, 14, 'DF');
+
+      doc.setTextColor(51, 65, 85); doc.setFont('helvetica', 'italic'); doc.setFontSize(7);
+      const wrappedNotes = doc.splitTextToSize(patient.symptoms?.trim() ? `"${patient.symptoms.trim()}"` : 'No additional notes recorded.', col1Width - 6);
+      doc.text(wrappedNotes, margin + 3, leftY + 5);
+
+      leftY += 18;
+
+      // Recommended Medications (Editable Card)
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text("RECOMMENDED MEDICATIONS", margin, leftY);
+      leftY += 2;
+      doc.setDrawColor(187, 247, 208);
+      doc.line(margin, leftY, margin + col1Width, leftY);
+      leftY += 3.5;
+
+      doc.setFillColor(240, 253, 244);
+      doc.rect(margin, leftY, col1Width, 24, 'DF');
+
+      doc.setTextColor(21, 128, 61); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+      doc.text('PRESCRIBED MEDICATION', margin + 3, leftY + 4.5);
+      doc.setTextColor(20, 83, 45); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+      doc.text(prescribedMedication || 'None Prescribed', margin + 3, leftY + 8.5);
+
+      doc.setTextColor(21, 128, 61); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+      doc.text('DOSAGE REGIMEN / DIRECTIONS', margin + 3, leftY + 14);
+      doc.setTextColor(20, 83, 45); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+      const wrappedRegimen = doc.splitTextToSize(prescribedRegimen || 'No directions specified.', col1Width - 6);
+      doc.text(wrappedRegimen, margin + 3, leftY + 18);
+
+      leftY += 28;
+
+      // ── RIGHT COLUMN (Dynamic Height Tracking & Sizing Engine) ──────────────────
+
+      const cardStartY = rightY;
+
+      // 1. Prepare Text & Data to pre-calculate the container height dynamically
+      const isHighText = activeAnalysisResult.urgency === 'High' ? 'Urgent Referral' : isMod ? 'Moderate Urgency' : 'Mild Urgency';
+      
+      const descText = activeAnalysisResult.primaryFinding.toLowerCase().includes('ringworm') 
+        ? "Tinea corporis is a superficial fungal infection characterised by a ring-shaped, scaly, itchy rash. Highly treatable with topical antifungal agents."
+        : activeAnalysisResult.primaryFinding.toLowerCase().includes('eczema')
+        ? "Atopic dermatitis is a chronic pruritic inflammatory skin condition managed with hydration, trigger avoidance, and topical anti-inflammatories."
+        : activeAnalysisResult.primaryFinding.toLowerCase().includes('impetigo')
+        ? "Impetigo is a highly contagious superficial bacterial skin infection characterized by honey-colored crusts. Managed with antibiotic therapy."
+        : activeAnalysisResult.primaryFinding.toLowerCase().includes('scabies')
+        ? "Scabies is an intensely itchy skin infestation caused by the mite Sarcoptes scabiei. Highly contagious. Managed with permethrin or ivermectin."
+        : "A potential clinical skin indication detected by the assistive triage scanner. Standard clinical diagnostic procedures are recommended before commencing definitive therapy.";
+
+      const docDetails = activeAnalysisResult.primaryFinding.toLowerCase().includes('ringworm') 
+        ? ["Clotrimazole 1% cream — apply twice daily for 2–4 weeks", "Keep area clean and dry", "Avoid sharing towels or clothing"]
+        : activeAnalysisResult.primaryFinding.toLowerCase().includes('eczema')
+        ? ["Hydrocortisone 1% cream — apply twice daily for 7 days", "Apply thick emollient moisturizer frequently", "Avoid harsh scented soaps and hot baths"]
+        : activeAnalysisResult.primaryFinding.toLowerCase().includes('impetigo')
+        ? ["Mupirocin 2% topical ointment — apply 3 times daily", "Gently clean honey-colored crusts with warm soapy water", "Keep lesions covered to prevent auto-inoculation"]
+        : activeAnalysisResult.primaryFinding.toLowerCase().includes('scabies')
+        ? ["Permethrin 5% cream — apply from neck down, wash after 8-14 hours", "Treat all household contacts simultaneously", "Wash bedding and clothes in hot water"]
+        : activeAnalysisResult.treatmentNotes?.length ? activeAnalysisResult.treatmentNotes : ["Monitor area daily for pigment or dimension shifts", "Keep the affected region clean, dry, and cool", "Refer to dermatology clinic if symptoms do not improve"];
+
+      // Pre-calculate heights
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+      const wrappedDesc = doc.splitTextToSize(descText, col2Width - 8);
+      const descHeight = wrappedDesc.length * 3.3;
+
+      let tempY = cardStartY + 33 + descHeight + 5; // offset for suggested treatment header
+      let treatBulletY = tempY + 4.5;
+      
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8);
+      docDetails.slice(0, 3).forEach(item => {
+        const wrappedItem = doc.splitTextToSize(item, col2Width - 10);
+        treatBulletY += (wrappedItem.length * 3.4) + 1.2;
+      });
+
+      const disclaimerText = 'This is an AI-generated suggestion. Final treatment decisions rest with the clinician.';
+      const cardHeight = treatBulletY - cardStartY + 6;
+
+      // 2. Draw card background with exact pre-calculated height first
+      doc.setFillColor(240, 253, 248);
+      doc.setDrawColor(204, 251, 241); doc.setLineWidth(0.3);
+      doc.rect(col2X, cardStartY, col2Width, cardHeight, 'DF');
+      doc.setDrawColor(8, 47, 73); doc.setLineWidth(0.8);
+      doc.line(col2X, cardStartY, col2X, cardStartY + cardHeight);
+
+      // 3. Write text on top of the background
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text('AI ASSESSMENT', col2X + 4, cardStartY + 5.5);
+      
+      doc.setFillColor(240, 253, 244); doc.setDrawColor(187, 247, 208); doc.setLineWidth(0.2);
+      doc.rect(col2X + col2Width - 22, cardStartY + 3, 18, 4, 'DF');
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
+      doc.text('ANALYSIS OK', col2X + col2Width - 19, cardStartY + 6);
+
+      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text(activeAnalysisResult.primaryFinding, col2X + 4, cardStartY + 13.5);
+
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      doc.text('Detection confidence', col2X + 4, cardStartY + 19);
+      const barColor = isHigh ? [225, 29, 72] : isMod ? [245, 158, 11] : [16, 185, 129]; // Rose-600, Amber-500, Emerald-600
+      doc.setTextColor(barColor[0], barColor[1], barColor[2]); doc.setFont('helvetica', 'bold');
+      const confStr = `${activeAnalysisResult.confidence}%`;
+      doc.text(confStr, col2X + col2Width - 4 - doc.getTextWidth(confStr), cardStartY + 19);
+
+      // confidence visual bar
+      doc.setFillColor(241, 245, 249);
+      doc.rect(col2X + 4, cardStartY + 21.5, col2Width - 8, 1.2, 'F');
+      doc.setFillColor(barColor[0], barColor[1], barColor[2]);
+      doc.rect(col2X + 4, cardStartY + 21.5, (col2Width - 8) * (activeAnalysisResult.confidence / 100), 1.2, 'F');
+
+      // Urgency badge with zero glyph glitches
+      doc.setFillColor(urgencyColor[0], urgencyColor[1], urgencyColor[2]);
+      doc.rect(col2X + 4, cardStartY + 25, doc.getTextWidth(isHighText) + 6, 4.5, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.2);
+      doc.circle(col2X + 7, cardStartY + 27.2, 0.6, 'F'); // Draw a native circle
+      doc.text(isHighText, col2X + 9, cardStartY + 28.2);
+
+      // Assessment description text
+      doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+      doc.text(wrappedDesc, col2X + 4, cardStartY + 33.5);
+
+      // Suggested treatment header
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+      doc.text('SUGGESTED TREATMENT', col2X + 4, tempY);
+
+      // Bullet points
+      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8);
+      let renderBulletY = tempY + 4.5;
+      docDetails.slice(0, 3).forEach(item => {
+        const wrappedItem = doc.splitTextToSize(item, col2Width - 10);
+        // Draw standard high-fidelity native bullet point circle
+        doc.setFillColor(8, 47, 73);
+        doc.circle(col2X + 5, renderBulletY - 1, 0.6, 'F');
+        doc.text(wrappedItem, col2X + 8, renderBulletY);
+        renderBulletY += (wrappedItem.length * 3.4) + 1.2;
+      });
+
+      // Disclaimer
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'italic'); doc.setFontSize(5.8);
+      doc.text(disclaimerText, col2X + 4, cardHeight + cardStartY - 3.5);
+
+      // Update rightY dynamically using the calculated height + spacing!
+      rightY = cardStartY + cardHeight + 8;
+
+      // Photos Block
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text('PHOTO TAKEN DURING ASSESSMENT', col2X, rightY);
+      rightY += 2;
+      doc.setDrawColor(186, 230, 253);
+      doc.line(col2X, rightY, col2X + col2Width, rightY);
+      rightY += 3.5;
+
+      // Render the photos side by side in PDF
+      const imgWidth = (col2Width - 4) / 2;
+      const imgHeight = 32;
+
+      let drawX = col2X;
+      if (capturedImage) {
+        try { doc.addImage(capturedImage, 'JPEG', drawX, rightY, imgWidth, imgHeight); } catch {}
+      } else {
+        doc.setFillColor(241, 245, 249); doc.rect(drawX, rightY, imgWidth, imgHeight, 'F');
+        doc.setTextColor(148, 163, 184); doc.setFontSize(6);
+        doc.text('NO PHOTO CAPTURED', drawX + 5, rightY + 16);
+      }
+
+      // Draw high-fidelity overlay badge for Clinical Specimen
+      doc.setFillColor(8, 47, 73);
+      doc.rect(drawX + 1.5, rightY + 1.5, 20, 3.8, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(4.5);
+      doc.text('CLINICAL SPECIMEN', drawX + 2.5, rightY + 4.1);
+
+      drawX += imgWidth + 4;
+      if (activeAnalysisResult.heatmap_b64) {
+        try { doc.addImage(`data:image/jpeg;base64,${activeAnalysisResult.heatmap_b64}`, 'JPEG', drawX, rightY, imgWidth, imgHeight); } catch {}
+      } else {
+        doc.setFillColor(241, 245, 249); doc.rect(drawX, rightY, imgWidth, imgHeight, 'F');
+        doc.setTextColor(148, 163, 184); doc.setFontSize(6);
+        doc.text('NO HEATMAP AVAILABLE', drawX + 4, rightY + 16);
+      }
+
+      // Draw high-fidelity overlay badge for AI Saliency Map
+      doc.setFillColor(8, 47, 73);
+      doc.rect(drawX + 1.5, rightY + 1.5, 20, 3.8, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(4.5);
+      doc.text('AI SALIENCY MAP', drawX + 2.5, rightY + 4.1);
+
+      rightY += imgHeight + 4;
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+      doc.text(`Photo captured: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`, col2X, rightY);
+
+      rightY += 10;
+
+      // Synchronize column heights for signature placement
+      y = Math.max(leftY, rightY) + 4;
+
+      // 3. Signature Block
+      doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.4);
+      doc.line(margin, y, margin + contentWidth, y);
+      y += 4;
+
+      const sigWidth = contentWidth / 2 - 4;
+      const sigHeight = 12;
+
+      // Attending Clinician Signature
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      doc.text('HEALTH WORKER SIGNATURE', margin, y);
+      
+      const sigCanvas = signatureCanvasRef.current;
+      if (sigCanvas) {
+        try {
+          const sigImg = sigCanvas.toDataURL('image/png');
+          doc.addImage(sigImg, 'PNG', margin, y + 2, sigWidth, sigHeight);
+        } catch {}
+      } else {
+        doc.setFillColor(248, 250, 252); doc.rect(margin, y + 2, sigWidth, sigHeight, 'F');
+      }
+
+      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text(clinicianName, margin, y + sigHeight + 5);
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+      doc.text(`${clinicianRole} · ${clinicianFacility}`, margin, y + sigHeight + 8);
+      doc.text(`Date: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`, margin, y + sigHeight + 11);
+
+      // Receiving Clinician Signature Stamp Box
+      const stampX = margin + contentWidth / 2 + 4;
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'bold'); doc.setFontSize(7);
+      doc.text('RECEIVING CLINICIAN STAMP / SIGNATURE', stampX, y);
+      
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.2);
+      doc.rect(stampX, y + 2, sigWidth, sigHeight, 'DF');
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
+      doc.text('PLACE CLINICAL STAMP HERE', stampX + (sigWidth - doc.getTextWidth('PLACE CLINICAL STAMP HERE')) / 2, y + 2 + sigHeight / 2 + 1);
+
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'italic'); doc.setFontSize(6.5);
+      const textToReceiving = '* To be completed at receiving facility';
+      doc.text(textToReceiving, margin + contentWidth - doc.getTextWidth(textToReceiving), y + sigHeight + 11);
+
+      // 4. Footer
+      const footerY = pageHeight - margin - 22;
+      doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.4);
+      doc.line(margin, footerY, margin + contentWidth, footerY);
+
+      doc.setFillColor(248, 250, 252);
+      doc.rect(margin, footerY + 1, contentWidth, 21, 'F');
+
+      // Left brand in footer (zero glyph glitches)
+      doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
+      // Draw native bullet point circle instead of Unicode bullet to prevent %T glitch
+      doc.circle(margin + 5, footerY + 4.8, 0.7, 'F');
+      doc.text('DermaDetect AI', margin + 7.5, footerY + 6);
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+      doc.text('Generated by DermaDetect — AI Skin Assessment Tool', margin + 4, footerY + 9.5);
+
+      // Right timestamp refs
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.8);
+      const refsHeader = 'TIMESTAMP & REFERRAL REFS';
+      doc.text(refsHeader, margin + contentWidth - 4 - doc.getTextWidth(refsHeader), footerY + 6);
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
+      const refsLine1 = `Ref: ${cleanRefId}`;
+      const refsLine2 = `Generated: ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`;
+      doc.text(refsLine1, margin + contentWidth - 4 - doc.getTextWidth(refsLine1), footerY + 9.5);
+      doc.text(refsLine2, margin + contentWidth - 4 - doc.getTextWidth(refsLine2), footerY + 13);
+
+      // Centered disclaimer
+      doc.setDrawColor(241, 245, 249); doc.setLineWidth(0.2);
+      doc.line(margin + 4, footerY + 15, margin + contentWidth - 4, footerY + 15);
+      
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'italic'); doc.setFontSize(6.2);
+      const disclaimer = 'This referral note was generated with AI assistance. It is intended to support, not replace, clinical judgment.';
+      doc.text(disclaimer, margin + (contentWidth - doc.getTextWidth(disclaimer)) / 2, footerY + 19);
+
+      // Save PDF
+      doc.save(`Clinical_Referral_Note_${cleanRefId}_${patient.name.trim().replace(/\s+/g, '_')}.pdf`);
+    } catch (err: any) {
+      alert('PDF generation failed: ' + err.message);
+    }
+  };
 
   const downloadPdfRecord = (record: CaseRecord) => {
     try {
@@ -921,12 +1409,12 @@ export default function App() {
                               <div className="flex justify-between items-start mt-1.5 mb-4">
                                 <h3 className="font-display font-bold text-xl md:text-2xl text-slate-900">{activeAnalysisResult.primaryFinding}</h3>
                                 <div className="bg-slate-50 px-3 py-1 rounded-xl flex flex-col items-end shrink-0 border border-slate-200">
-                                  <span className="font-display font-bold text-[#00A6FB] text-xl leading-none">{activeAnalysisResult.confidence}%</span>
+                                  <span className={`font-display font-bold text-xl leading-none ${activeAnalysisResult.urgency === 'High' ? 'text-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'text-amber-500' : 'text-emerald-600'}`}>{activeAnalysisResult.confidence}%</span>
                                   <span className="text-[9px] font-semibold text-slate-400 mt-0.5 uppercase tracking-wider">Match</span>
                                 </div>
                               </div>
                               <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-[#00A6FB]" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                                <div className={`h-full rounded-full ${activeAnalysisResult.urgency === 'High' ? 'bg-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${activeAnalysisResult.confidence}%` }} />
                               </div>
                             </div>
                             <div>
@@ -1020,7 +1508,7 @@ export default function App() {
                             </div>
                             <p className="text-xs text-slate-500 leading-relaxed">This structured note details the verified findings and can be printed or shared.</p>
                             <div className="space-y-2 pt-2">
-                              <button onClick={() => window.print()} className="w-full h-11 bg-[#082F49] hover:bg-[#032D49]/30 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                              <button onClick={downloadReferralNotePdf} className="w-full h-11 bg-[#082F49] hover:bg-[#032D49]/30 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
                                 <Printer className="w-4 h-4" /><span>Download as PDF</span>
                               </button>
                               <a href={`https://wa.me/?text=DermaDetect%20Referral%20Note%20for%20${encodeURIComponent(patient.name||'Patient')}%20—%20${encodeURIComponent(activeAnalysisResult.primaryFinding)}%20—%20${isHigh?'URGENT':isMod?'MODERATE':'MILD'}%20urgency.`} target="_blank" rel="noreferrer" className="w-full h-11 bg-[#082F49]/40 hover:bg-[#082F49]/60 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
@@ -1118,6 +1606,33 @@ export default function App() {
                                     {patient.symptoms?.trim() ? <p className="italic">"{patient.symptoms.trim()}"</p> : <p className="text-slate-400 italic">No additional notes recorded.</p>}
                                   </div>
                                 </div>
+
+                                {/* Recommended Medications (Editable Card) */}
+                                <div className="space-y-2 text-left avoid-break">
+                                  <h4 className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase border-b border-teal-100 pb-1">RECOMMENDED MEDICATIONS <span className="no-print text-emerald-600 font-sans tracking-normal normal-case font-semibold text-[10px]"> (editable)</span></h4>
+                                  <div className="p-3.5 bg-[#F0FDF4] border border-[#DCFCE7] rounded-lg text-xs space-y-3 shadow-xs">
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[9px] text-[#15803D] uppercase font-bold tracking-wider">Prescribed Medication</span>
+                                      <input 
+                                        type="text" 
+                                        value={prescribedMedication} 
+                                        onChange={(e) => setPrescribedMedication(e.target.value)} 
+                                        className="w-full bg-white border border-[#BBF7D0] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#15803D] text-xs font-semibold text-[#14532D]"
+                                        placeholder="e.g. Timolol 0.5% Ophthalmic Gel"
+                                      />
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                      <span className="text-[9px] text-[#15803D] uppercase font-bold tracking-wider">Dosage Regimen / Directions</span>
+                                      <textarea 
+                                        rows={2} 
+                                        value={prescribedRegimen} 
+                                        onChange={(e) => setPrescribedRegimen(e.target.value)} 
+                                        className="w-full bg-white border border-[#BBF7D0] rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#15803D] text-xs leading-relaxed text-[#14532D] resize-none"
+                                        placeholder="e.g. Apply twice daily to the affected areas for 2 weeks."
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
 
                               {/* Right col */}
@@ -1131,10 +1646,10 @@ export default function App() {
                                     <h3 className="font-display font-black text-[#0A1628] text-base leading-snug">{activeAnalysisResult.primaryFinding}</h3>
                                     <div className="flex justify-between items-center text-[11px] font-medium text-slate-500">
                                       <span>Detection confidence</span>
-                                      <span className="font-mono font-bold text-[#082F49]">{activeAnalysisResult.confidence}%</span>
+                                      <span className={`font-mono font-bold ${activeAnalysisResult.urgency === 'High' ? 'text-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'text-amber-500' : 'text-emerald-600'}`}>{activeAnalysisResult.confidence}%</span>
                                     </div>
                                     <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                      <div className="h-full bg-[#082F49] rounded-full" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                                      <div className={`h-full rounded-full ${activeAnalysisResult.urgency === 'High' ? 'bg-rose-600' : activeAnalysisResult.urgency === 'Moderate' ? 'bg-amber-500' : 'bg-emerald-600'}`} style={{ width: `${activeAnalysisResult.confidence}%` }} />
                                     </div>
                                   </div>
                                   <div className="pt-1">
@@ -1168,6 +1683,7 @@ export default function App() {
                                         <span className="text-[10px] font-semibold tracking-wider uppercase mt-2">NO PHOTO CAPTURED</span>
                                       </div>
                                     )}
+                                    <div className="absolute top-2.5 left-2.5 bg-[#082F49]/85 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white select-none tracking-widest uppercase">Clinical Specimen</div>
                                     <div className="absolute bottom-2.5 right-2.5 bg-slate-900/40 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white/95 select-none tracking-widest uppercase">DermaDetect AI</div>
                                   </div>
                                   <div className="relative aspect-square w-full rounded-xl border border-slate-150 overflow-hidden bg-slate-50 shrink-0">
@@ -1179,6 +1695,7 @@ export default function App() {
                                         <span className="text-[10px] font-semibold tracking-wider uppercase mt-2">NO HEATMAP AVAILABLE</span>
                                       </div>
                                     )}
+                                    <div className="absolute top-2.5 left-2.5 bg-[#082F49]/85 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white select-none tracking-widest uppercase">AI Saliency Map</div>
                                     <div className="absolute bottom-2.5 right-2.5 bg-slate-900/40 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white/95 select-none tracking-widest uppercase">DermaDetect AI</div>
                                   </div>
                                   <span className="text-[10px] text-slate-400 mt-1 block font-mono">Photo captured: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
@@ -1210,19 +1727,28 @@ export default function App() {
                             </div>
 
                             {/* Footer */}
-                            <div className="mt-8 pt-4 border-t border-slate-200 bg-slate-50/80 p-4 rounded-b-xl flex flex-col md:flex-row justify-between items-center gap-4 text-[10.5px] text-slate-400">
-                              <div className="text-left space-y-1">
-                                <div className="flex items-center gap-1.5 font-bold text-slate-500">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-[#082F49]" /><span>DermaDetect AI</span>
+                            <div className="mt-8 pt-4 border-t border-slate-200 bg-slate-50/80 p-4 rounded-b-xl flex flex-col gap-4 text-[10.5px] text-slate-400">
+                              <div className="flex flex-col md:flex-row justify-between items-start gap-4">
+                                {/* Left side */}
+                                <div className="text-left space-y-1">
+                                  <div className="flex items-center gap-1.5 font-bold text-slate-500">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-[#082F49]" /><span>DermaDetect AI</span>
+                                  </div>
+                                  <p className="text-[9.5px]">Generated by DermaDetect — AI Skin Assessment Tool</p>
                                 </div>
-                                <p className="text-[9.5px]">Generated by DermaDetect — AI Skin Assessment Tool.</p>
+
+                                {/* Right side */}
+                                <div className="text-right space-y-1">
+                                  <p className="font-mono font-bold uppercase text-slate-500">TIMESTAMP & REFERRAL REFS</p>
+                                  <p className="text-[9.5px]">Ref: <span className="font-semibold">{cleanRefId}</span></p>
+                                  <p className="text-[9.5px]">Generated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} at {new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                                </div>
                               </div>
-                              <div className="text-center space-y-1">
-                                <p className="font-mono font-bold uppercase text-slate-500">TIMESTAMP & REFERRAL REFS</p>
-                                <p>Ref: <span className="font-semibold">{cleanRefId}</span></p>
-                                <p>Generated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+
+                              {/* Bottom center */}
+                              <div className="text-center border-t border-slate-100/50 pt-2 text-[9px] leading-normal text-slate-400 max-w-xl mx-auto">
+                                This referral note was generated with AI assistance. It is intended to support, not replace, clinical judgment.
                               </div>
-                              <div className="text-right max-w-xs text-[9px] italic leading-normal text-slate-400">This referral note was generated with AI assistance. It is intended to support, not replace, clinical judgment.</div>
                             </div>
                           </div>
                         </div>
