@@ -384,11 +384,13 @@ export default function App() {
       const isMod = urgencyStr === 'Moderate';
       
       const urgencyColor = isHigh ? [216, 90, 48] : isMod ? [239, 159, 39] : [8, 47, 73]; // #D85A30, #EF9F27, #082F49
+      
+      // Clean non-Unicode alerts to prevent '%T' glitch
       const urgencyTextStr = isHigh 
-        ? '● URGENT — Immediate referral required. Do not delay.' 
+        ? 'URGENT — Immediate referral required. Do not delay.' 
         : isMod 
-          ? '● MODERATE — Refer to clinic within 3 days for assessment and treatment.' 
-          : '● MILD — Can be managed locally. Refer if no improvement in 7 days.';
+          ? 'MODERATE — Refer to clinic within 3 days for assessment and treatment.' 
+          : 'MILD — Can be managed locally. Refer if no improvement in 7 days.';
       
       const cleanRefId = activeCaseId || `DD-${new Date().getFullYear()}-00847`;
 
@@ -424,12 +426,17 @@ export default function App() {
 
       y += 22;
 
-      // 2. Alert Stripe
+      // 2. Alert Stripe (Zero glyph glitches, smaller text size to avoid clipping)
       doc.setFillColor(urgencyColor[0], urgencyColor[1], urgencyColor[2]);
       doc.rect(margin, y, contentWidth, 9, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
-      doc.text(urgencyTextStr, margin + (contentWidth - doc.getTextWidth(urgencyTextStr)) / 2, y + 6);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); // reduced to 7.5 to fit perfectly
+      
+      // Draw a tiny native white circle instead of Unicode bullet to prevent %T glitch
+      doc.setFillColor(255, 255, 255);
+      const alertTextX = margin + (contentWidth - doc.getTextWidth(urgencyTextStr)) / 2;
+      doc.circle(alertTextX - 2.5, y + 4.2, 0.7, 'F');
+      doc.text(urgencyTextStr, alertTextX + 1.5, y + 6.2);
 
       y += 15;
 
@@ -566,46 +573,14 @@ export default function App() {
 
       leftY += 28;
 
-      // ── RIGHT COLUMN ────────────────────────────────────────────────────────
+      // ── RIGHT COLUMN (Dynamic Height Tracking & Sizing Engine) ──────────────────
 
-      // AI Assessment Card
-      doc.setFillColor(240, 253, 248);
-      doc.setDrawColor(204, 251, 241); doc.setLineWidth(0.3);
-      doc.rect(col2X, rightY, col2Width, 80, 'DF');
-      doc.setDrawColor(8, 47, 73); doc.setLineWidth(0.8);
-      doc.line(col2X, rightY, col2X, rightY + 80);
+      const cardStartY = rightY;
 
-      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-      doc.text('AI ASSESSMENT', col2X + 4, rightY + 5.5);
+      // 1. Prepare Text & Data to pre-calculate the container height dynamically
+      const isHighText = activeAnalysisResult.urgency === 'High' ? 'Urgent Referral' : isMod ? 'Moderate Urgency' : 'Mild Urgency';
       
-      doc.setFillColor(240, 253, 244); doc.setDrawColor(187, 247, 208); doc.setLineWidth(0.2);
-      doc.rect(col2X + col2Width - 22, rightY + 3, 18, 4, 'DF');
-      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
-      doc.text('ANALYSIS OK', col2X + col2Width - 19, rightY + 6);
-
-      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-      doc.text(activeAnalysisResult.primaryFinding, col2X + 4, rightY + 13.5);
-
-      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
-      doc.text('Detection confidence', col2X + 4, rightY + 19);
-      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold');
-      const confStr = `${activeAnalysisResult.confidence}%`;
-      doc.text(confStr, col2X + col2Width - 4 - doc.getTextWidth(confStr), rightY + 19);
-
-      doc.setFillColor(241, 245, 249);
-      doc.rect(col2X + 4, rightY + 21.5, col2Width - 8, 1.5, 'F');
-      doc.setFillColor(8, 47, 73);
-      doc.rect(col2X + 4, rightY + 21.5, (col2Width - 8) * (activeAnalysisResult.confidence / 100), 1.5, 'F');
-
-      const isHighText = activeAnalysisResult.urgency === 'High' ? '● Urgent Referral' : isMod ? '● Moderate Urgency' : '● Mild Urgency';
-      doc.setFillColor(urgencyColor[0], urgencyColor[1], urgencyColor[2]);
-      doc.rect(col2X + 4, rightY + 26, doc.getTextWidth(isHighText) + 6, 5, 'F');
-      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
-      doc.text(isHighText, col2X + 7, rightY + 29.5);
-
-      doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
-      const wrappedDesc = doc.splitTextToSize(
-        activeAnalysisResult.primaryFinding.toLowerCase().includes('ringworm') 
+      const descText = activeAnalysisResult.primaryFinding.toLowerCase().includes('ringworm') 
         ? "Tinea corporis is a superficial fungal infection characterised by a ring-shaped, scaly, itchy rash. Highly treatable with topical antifungal agents."
         : activeAnalysisResult.primaryFinding.toLowerCase().includes('eczema')
         ? "Atopic dermatitis is a chronic pruritic inflammatory skin condition managed with hydration, trigger avoidance, and topical anti-inflammatories."
@@ -613,13 +588,7 @@ export default function App() {
         ? "Impetigo is a highly contagious superficial bacterial skin infection characterized by honey-colored crusts. Managed with antibiotic therapy."
         : activeAnalysisResult.primaryFinding.toLowerCase().includes('scabies')
         ? "Scabies is an intensely itchy skin infestation caused by the mite Sarcoptes scabiei. Highly contagious. Managed with permethrin or ivermectin."
-        : "A potential clinical skin indication detected by the assistive triage scanner. Standard clinical diagnostic procedures are recommended before commencing definitive therapy.", 
-        col2Width - 8
-      );
-      doc.text(wrappedDesc, col2X + 4, rightY + 36);
-
-      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
-      doc.text('SUGGESTED TREATMENT', col2X + 4, rightY + 54);
+        : "A potential clinical skin indication detected by the assistive triage scanner. Standard clinical diagnostic procedures are recommended before commencing definitive therapy.";
 
       const docDetails = activeAnalysisResult.primaryFinding.toLowerCase().includes('ringworm') 
         ? ["Clotrimazole 1% cream — apply twice daily for 2–4 weeks", "Keep area clean and dry", "Avoid sharing towels or clothing"]
@@ -631,20 +600,87 @@ export default function App() {
         ? ["Permethrin 5% cream — apply from neck down, wash after 8-14 hours", "Treat all household contacts simultaneously", "Wash bedding and clothes in hot water"]
         : activeAnalysisResult.treatmentNotes?.length ? activeAnalysisResult.treatmentNotes : ["Monitor area daily for pigment or dimension shifts", "Keep the affected region clean, dry, and cool", "Refer to dermatology clinic if symptoms do not improve"];
 
-      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8);
-      let treatY = rightY + 58;
-      doc.setFillColor(8, 47, 73);
+      // Pre-calculate heights
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+      const wrappedDesc = doc.splitTextToSize(descText, col2Width - 8);
+      const descHeight = wrappedDesc.length * 3.3;
+
+      let tempY = cardStartY + 33 + descHeight + 5; // offset for suggested treatment header
+      let treatBulletY = tempY + 4.5;
+      
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8);
       docDetails.slice(0, 3).forEach(item => {
-        doc.circle(col2X + 5, treatY - 1, 0.6, 'F');
         const wrappedItem = doc.splitTextToSize(item, col2Width - 10);
-        doc.text(wrappedItem, col2X + 8, treatY);
-        treatY += (wrappedItem.length * 3.5);
+        treatBulletY += (wrappedItem.length * 3.4) + 1.2;
       });
 
-      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'italic'); doc.setFontSize(5.8);
-      doc.text('This is an AI-generated suggestion. Final treatment decisions rest with the clinician.', col2X + 4, rightY + 77);
+      const disclaimerText = 'This is an AI-generated suggestion. Final treatment decisions rest with the clinician.';
+      const cardHeight = treatBulletY - cardStartY + 6;
 
-      rightY += 85;
+      // 2. Draw card background with exact pre-calculated height first
+      doc.setFillColor(240, 253, 248);
+      doc.setDrawColor(204, 251, 241); doc.setLineWidth(0.3);
+      doc.rect(col2X, cardStartY, col2Width, cardHeight, 'DF');
+      doc.setDrawColor(8, 47, 73); doc.setLineWidth(0.8);
+      doc.line(col2X, cardStartY, col2X, cardStartY + cardHeight);
+
+      // 3. Write text on top of the background
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+      doc.text('AI ASSESSMENT', col2X + 4, cardStartY + 5.5);
+      
+      doc.setFillColor(240, 253, 244); doc.setDrawColor(187, 247, 208); doc.setLineWidth(0.2);
+      doc.rect(col2X + col2Width - 22, cardStartY + 3, 18, 4, 'DF');
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(6);
+      doc.text('ANALYSIS OK', col2X + col2Width - 19, cardStartY + 6);
+
+      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text(activeAnalysisResult.primaryFinding, col2X + 4, cardStartY + 13.5);
+
+      doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+      doc.text('Detection confidence', col2X + 4, cardStartY + 19);
+      doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold');
+      const confStr = `${activeAnalysisResult.confidence}%`;
+      doc.text(confStr, col2X + col2Width - 4 - doc.getTextWidth(confStr), cardStartY + 19);
+
+      // confidence visual bar
+      doc.setFillColor(241, 245, 249);
+      doc.rect(col2X + 4, cardStartY + 21.5, col2Width - 8, 1.2, 'F');
+      doc.setFillColor(8, 47, 73);
+      doc.rect(col2X + 4, cardStartY + 21.5, (col2Width - 8) * (activeAnalysisResult.confidence / 100), 1.2, 'F');
+
+      // Urgency badge with zero glyph glitches
+      doc.setFillColor(urgencyColor[0], urgencyColor[1], urgencyColor[2]);
+      doc.rect(col2X + 4, cardStartY + 25, doc.getTextWidth(isHighText) + 6, 4.5, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.2);
+      doc.circle(col2X + 7, cardStartY + 27.2, 0.6, 'F'); // Draw a native circle
+      doc.text(isHighText, col2X + 9, cardStartY + 28.2);
+
+      // Assessment description text
+      doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'normal'); doc.setFontSize(7);
+      doc.text(wrappedDesc, col2X + 4, cardStartY + 33.5);
+
+      // Suggested treatment header
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5);
+      doc.text('SUGGESTED TREATMENT', col2X + 4, tempY);
+
+      // Bullet points
+      doc.setTextColor(10, 22, 40); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.8);
+      let renderBulletY = tempY + 4.5;
+      docDetails.slice(0, 3).forEach(item => {
+        const wrappedItem = doc.splitTextToSize(item, col2Width - 10);
+        // Draw standard high-fidelity native bullet point circle
+        doc.setFillColor(8, 47, 73);
+        doc.circle(col2X + 5, renderBulletY - 1, 0.6, 'F');
+        doc.text(wrappedItem, col2X + 8, renderBulletY);
+        renderBulletY += (wrappedItem.length * 3.4) + 1.2;
+      });
+
+      // Disclaimer
+      doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'italic'); doc.setFontSize(5.8);
+      doc.text(disclaimerText, col2X + 4, cardHeight + cardStartY - 3.5);
+
+      // Update rightY dynamically using the calculated height + spacing!
+      rightY = cardStartY + cardHeight + 8;
 
       // Photos Block
       doc.setTextColor(8, 47, 73); doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
@@ -736,9 +772,11 @@ export default function App() {
       doc.setFillColor(248, 250, 252);
       doc.rect(margin, footerY + 1, contentWidth, 21, 'F');
 
-      // Left brand in footer
+      // Left brand in footer (zero glyph glitches)
       doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5);
-      doc.text('● DermaDetect AI', margin + 4, footerY + 6);
+      // Draw native bullet point circle instead of Unicode bullet to prevent %T glitch
+      doc.circle(margin + 5, footerY + 4.8, 0.7, 'F');
+      doc.text('DermaDetect AI', margin + 7.5, footerY + 6);
       doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
       doc.text('Generated by DermaDetect — AI Skin Assessment Tool', margin + 4, footerY + 9.5);
 
