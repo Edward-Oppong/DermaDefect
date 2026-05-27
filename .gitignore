@@ -6,3 +6,48 @@ coverage/
 *.log
 .env*
 !.env.example
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+
+# Logs
+*.log
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (if frontend exists)
+node_modules/
+
+# Build/dist
+dist/
+build/
+
+# Migrations cache
+*.sqlite3

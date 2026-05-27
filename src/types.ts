@@ -7,6 +7,7 @@ export interface PatientDetails {
   name: string;
   age: string;
   sex: 'Male' | 'Female' | '';
+  contactNumber: string;
   symptoms: string;
 }
 

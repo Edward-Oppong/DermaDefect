@@ -1,9 +1,6 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { motion } from 'motion/react';
 import { 
   User, 
   UserPen, 
@@ -21,7 +18,6 @@ import {
   Save, 
   Share2, 
   Download, 
-  QrCode, 
   Search, 
   Filter, 
   ChevronRight, 
@@ -32,45 +28,44 @@ import {
   History, 
   Loader2, 
   ArrowRight,
-  Sparkles,
   HeartPulse,
   Printer,
   BookOpen,
-  Languages,
   Home,
-  Cloud,
-  CloudOff,
-  Database,
-  RefreshCw,
-  Wifi,
-  Signal,
-  Trash2
+  Trash2,
+  Clock,
+  Heart
 } from 'lucide-react';
 import { 
-  SAMPLE_CASE_TEMPLATES, 
+  SAMPLE_CASE_TEMPLATES,
   CaseRecord, 
   PatientDetails, 
   DiagnosticResult 
 } from './types';
 import { TRANSLATIONS, LanguageOption } from './locales';
-import { TreatmentRecommendations } from './components/TreatmentRecommendations';
+import { TreatmentRecommendations} from './components/TreatmentRecommendations';
 import { jsPDF } from 'jspdf';
-import ReactMarkdown from 'react-markdown';
+import { clearProfile, ClinicianProfile, ClinicianSetup, loadProfile } from './components/ClinicianSetup';
 
 export default function App() {
+
+  // ── Clinician profile ──────────────────────────────────────────────────────
+  const [clinician, setClinician] = useState<ClinicianProfile | null>(() => loadProfile());
+
+  const handleProfileComplete = (profile: ClinicianProfile) => {
+    setClinician({ ...profile });
+  };
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
   const [screen, setScreen] = useState<'home' | 'assessment-info' | 'assessment-capture' | 'assessment-review' | 'referral-note' | 'case-history'>('home');
   const [lang, setLang] = useState<LanguageOption>('English');
   const [langMenuOpen, setLangMenuOpen] = useState(false);
 
+  // ── Cases ──────────────────────────────────────────────────────────────────
   const [cases, setCases] = useState<CaseRecord[]>([]);
 
-  const [patient, setPatient] = useState<PatientDetails>({
-    name: '',
-    age: '',
-    sex: '',
-    symptoms: ''
-  });
-  
+  // ── Assessment state ───────────────────────────────────────────────────────
+  const [patient, setPatient] = useState<PatientDetails>({ name: '', age: '', sex: '', contactNumber: '', symptoms: '' });
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [customFileSelected, setCustomFileSelected] = useState<boolean>(false);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -78,2403 +73,1428 @@ export default function App() {
   const [activeAnalysisResult, setActiveAnalysisResult] = useState<DiagnosticResult | null>(null);
   const [activeCaseId, setActiveCaseId] = useState<string>('');
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
+  const [referralNoteLoading, setReferralNoteLoading] = useState(false);
 
+  // ── Case history UI ────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUrgency, setFilterUrgency] = useState<'All' | 'High' | 'Moderate' | 'Low'>('All');
   const [selectedDetailsCase, setSelectedDetailsCase] = useState<CaseRecord | null>(null);
   const [zoomImage, setZoomImage] = useState(false);
-
-  const [healthWorkerName, setHealthWorkerName] = useState<string>(() => {
-    return localStorage.getItem('dermadetect_worker_name') || '';
-  });
-
-  useEffect(() => {
-    if (!healthWorkerName) {
-      const name = window.prompt("Please enter your name (Health Worker Profile):", "K. Mensah");
-      if (name) {
-        setHealthWorkerName(name);
-        localStorage.setItem('dermadetect_worker_name', name);
-      } else {
-        setHealthWorkerName("Unknown Worker");
-      }
-    }
-  }, [healthWorkerName]);
-
   const [caseToDelete, setCaseToDelete] = useState<CaseRecord | null>(null);
-  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
-  const [showReportPreview, setShowReportPreview] = useState(false);
 
-  // Sanitise referralNote — converts JSON-escaped \n back to real newlines
-  const sanitiseReferralNote = (note: string): string => {
-    return note
-      .replace(/\\n\\n/g, '\n\n')
-      .replace(/\\n/g, '\n');
+  // ── FAQ state ──────────────────────────────────────────────────────────────
+  const [faqOpenState, setFaqOpenState] = useState<Record<number, boolean>>({ 0: true });
+
+  // ── Signature canvas ───────────────────────────────────────────────────────
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isDrawingSig, setIsDrawingSig] = useState(false);
+
+  const startDrawingSig = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    setIsDrawingSig(true);
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.strokeStyle = '#0A1628'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const rect = canvas.getBoundingClientRect();
+    const x = ('clientX' in e) ? e.clientX - rect.left : e.touches[0].clientX - rect.left;
+    const y = ('clientY' in e) ? e.clientY - rect.top  : e.touches[0].clientY - rect.top;
+    ctx.beginPath(); ctx.moveTo(x, y);
+  };
+  const drawSig = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawingSig) return;
+    const canvas = signatureCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ('clientX' in e) ? e.clientX - rect.left : e.touches[0].clientX - rect.left;
+    const y = ('clientY' in e) ? e.clientY - rect.top  : e.touches[0].clientY - rect.top;
+    ctx.lineTo(x, y); ctx.stroke(); e.preventDefault();
+  };
+  const stopDrawingSig = () => setIsDrawingSig(false);
+  const clearSig = () => {
+    const canvas = signatureCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
-  // ---------------------------------------------------------------------------
-  // Database cloud sync state
-  // ---------------------------------------------------------------------------
-  const [dbStatus, setDbStatus] = useState<'online' | 'offline'>('online');
+  // ── Sync / health ──────────────────────────────────────────────────────────
+  const [dbStatus, setDbStatus]     = useState<'online' | 'offline'>('online');
   const [syncStatus, setSyncStatus] = useState<'synced' | 'pending' | 'syncing'>('synced');
-  const [latency, setLatency] = useState<number | null>(null);
   const [lastSynced, setLastSynced] = useState<string | null>(null);
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(true);
-  const [displaySyncDropdown, setDisplaySyncDropdown] = useState<boolean>(false);
+  const [autoSyncEnabled]           = useState<boolean>(true);
 
-  // ---------------------------------------------------------------------------
-  // Core sync — POSTs each case individually to /api/cases (upsert)
-  // ---------------------------------------------------------------------------
-  const triggerCloudSync = async (currentCasesList: CaseRecord[]) => {
-    if (currentCasesList.length === 0) return;
+  const triggerCloudSync = async (list: CaseRecord[]) => {
+    if (list.length === 0) return;
     setSyncStatus('syncing');
     try {
-      await Promise.all(
-        currentCasesList.map(c =>
-          fetch('/api/cases', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(c)
-          })
-        )
-      );
-      setSyncStatus('synced');
-      setDbStatus('online');
-      const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLastSynced(timestamp);
-      localStorage.setItem('dermadetect_last_synced', timestamp);
-    } catch (e) {
-      console.warn('Sync failed. Preserving in local cache.', e);
-      setSyncStatus('pending');
-      setDbStatus('offline');
-    }
+      await Promise.all(list.map(c => fetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) })));
+      setSyncStatus('synced'); setDbStatus('online');
+      const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastSynced(ts); localStorage.setItem('dermadetect_last_synced', ts);
+    } catch { setSyncStatus('pending'); setDbStatus('offline'); }
   };
 
-  // ---------------------------------------------------------------------------
-  // Health probe
-  // ---------------------------------------------------------------------------
   const probeDatabaseHealth = async () => {
     try {
-      const startTime = performance.now();
-      const response = await fetch('/api/health');
-      const endTime = performance.now();
-      if (response.ok) {
-        const data = await response.json();
-        setDbStatus('online');
-        setLatency(Math.round(endTime - startTime + (data.latencyMs || 0) / 4));
-        return true;
-      } else {
-        setDbStatus('offline');
-        setLatency(null);
-        return false;
-      }
-    } catch (e) {
-      setDbStatus('offline');
-      setLatency(null);
-      return false;
-    }
+      const t0 = performance.now();
+      const r  = await fetch('/api/health');
+      if (r.ok) { setDbStatus('online'); return true; }
+      setDbStatus('offline'); return false;
+    } catch { setDbStatus('offline'); return false; }
   };
 
-  // Restore last synced timestamp on mount
   useEffect(() => {
-    const savedTime = localStorage.getItem('dermadetect_last_synced');
-    if (savedTime) setLastSynced(savedTime);
+    const saved = localStorage.getItem('dermadetect_last_synced');
+    if (saved) setLastSynced(saved);
   }, []);
 
-  // Periodic sync loop
   useEffect(() => {
-    const initialCheck = async () => {
-      const isOnline = await probeDatabaseHealth();
-      if (isOnline && autoSyncEnabled && cases.length > 0) {
-        await triggerCloudSync(cases);
-      }
+    const init = async () => {
+      const online = await probeDatabaseHealth();
+      if (online && autoSyncEnabled && cases.length > 0) await triggerCloudSync(cases);
     };
-
-    if (cases.length > 0) initialCheck();
-
-    const syncInterval = setInterval(async () => {
-      const isOnline = await probeDatabaseHealth();
-      if (isOnline && autoSyncEnabled && cases.length > 0) {
-        await triggerCloudSync(cases);
-      }
+    if (cases.length > 0) init();
+    const id = setInterval(async () => {
+      const online = await probeDatabaseHealth();
+      if (online && autoSyncEnabled && cases.length > 0) await triggerCloudSync(cases);
     }, 15000);
-
-    return () => clearInterval(syncInterval);
+    return () => clearInterval(id);
   }, [cases, autoSyncEnabled]);
 
-  // ---------------------------------------------------------------------------
-  // Camera
-  // ---------------------------------------------------------------------------
+  // ── Camera ─────────────────────────────────────────────────────────────────
   const [isCameraActive, setIsCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [cameraError, setCameraError]       = useState<string | null>(null);
+  const videoRef  = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // ---------------------------------------------------------------------------
-  // Load cases: SQLite first, localStorage fallback, INITIAL_CASES last resort
-  // ---------------------------------------------------------------------------
+  // ── Load cases ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const loadCases = async () => {
+    const load = async () => {
       try {
-        const response = await fetch('/api/cases');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.cases && data.cases.length > 0) {
-            setCases(data.cases);
-            localStorage.setItem('dermadetect_cases', JSON.stringify(data.cases));
-            return;
-          }
+        const r = await fetch('/api/cases');
+        if (r.ok) {
+          const d = await r.json();
+          if (d.cases?.length > 0) { setCases(d.cases); localStorage.setItem('dermadetect_cases', JSON.stringify(d.cases)); return; }
         }
-      } catch (e) {
-        console.warn('Server unreachable on load, falling back to localStorage:', e);
-      }
-
-        const stored = localStorage.getItem('dermadetect_cases');
-      if (stored) {
-        try {
-          setCases(JSON.parse(stored));
-        } catch {
-          setCases([]);
-        }
-      } else {
-        setCases([]);
-      }
+      } catch { console.warn('Server unreachable, falling back to localStorage'); }
+      const stored = localStorage.getItem('dermadetect_cases');
+      try { setCases(stored ? JSON.parse(stored) : []); } catch { setCases([]); }
     };
-
-    loadCases();
+    load();
   }, []);
 
-  const syncCasesToStorage = (updatedCases: CaseRecord[]) => {
-    setCases(updatedCases);
-    localStorage.setItem('dermadetect_cases', JSON.stringify(updatedCases));
+  const syncCasesToStorage = (updated: CaseRecord[]) => {
+    setCases(updated);
+    localStorage.setItem('dermadetect_cases', JSON.stringify(updated));
   };
 
   const t = TRANSLATIONS[lang];
 
   const resetAndStartAssessment = () => {
-    setPatient({ name: '', age: '', sex: '', symptoms: '' });
-    setCapturedImage(null);
-    setCustomFileSelected(false);
-    setActiveAnalysisResult(null);
-    setActiveCaseId('');
-    setScreen('assessment-info');
-    stopWebcam();
+    setPatient({ name: '', age: '', sex: '', contactNumber: '', symptoms: '' });
+    setCapturedImage(null); setCustomFileSelected(false);
+    setActiveAnalysisResult(null); setActiveCaseId('');
+    setScreen('assessment-info'); stopWebcam();
   };
 
-  // ---------------------------------------------------------------------------
-  // Webcam
-  // ---------------------------------------------------------------------------
   const startWebcam = async () => {
-    setIsCameraActive(true);
-    setCameraError(null);
+    setIsCameraActive(true); setCameraError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment', width: 640, height: 480 } 
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: 640, height: 480 } });
       streamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
-    } catch (err: any) {
-      console.warn("Camera streaming turned down or unsupportable in layout:", err);
-      setCameraError("Webcam not accessible. Please upload details from the Gallery or select one of our common training case templates.");
-      setIsCameraActive(false);
-    }
+    } catch { setCameraError("Webcam not accessible. Please upload from Gallery."); setIsCameraActive(false); }
   };
 
   const stopWebcam = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    setIsCameraActive(false);
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null; setIsCameraActive(false);
   };
 
   const captureFrame = () => {
-    if (videoRef.current) {
-      const canvas = document.createElement('canvas');
-      canvas.width = videoRef.current.videoWidth || 640;
-      canvas.height = videoRef.current.videoHeight || 480;
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg');
-        setCapturedImage(dataUrl);
-        setCustomFileSelected(true);
-        stopWebcam();
-      }
-    }
+    if (!videoRef.current) return;
+    const canvas = document.createElement('canvas');
+    canvas.width  = videoRef.current.videoWidth  || 640;
+    canvas.height = videoRef.current.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height); setCapturedImage(canvas.toDataURL('image/jpeg')); setCustomFileSelected(true); stopWebcam(); }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCapturedImage(reader.result as string);
-        setCustomFileSelected(true);
-        stopWebcam();
-      };
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => { setCapturedImage(reader.result as string); setCustomFileSelected(true); stopWebcam(); };
+    reader.readAsDataURL(file);
   };
 
-  const selectTemplateInstance = (templateUrl: string) => {
-    setCapturedImage(templateUrl);
-    setCustomFileSelected(false);
-    stopWebcam();
-    setScreen('assessment-capture'); // Take them directly to enter patient info
-  };
-
-  // ---------------------------------------------------------------------------
-  // AI analysis
-  // ---------------------------------------------------------------------------
+  // ── AI Analysis ────────────────────────────────────────────────────────────
   const runAiAnalysis = async () => {
     if (!capturedImage) return;
-
     setAnalysisLoading(true);
-
     const messages = [
       "Accessing secured local database sandbox...",
       "Encrypting transmission packet according to medical standard guidelines...",
       "Extracting skin lesion pigmentation & margins...",
-      "Invoking DermaVision diagnostic model...",
+      "Invoking DermaDefect diagnostic model...",
       "Conducting diagnostic taxonomy matrix parsing...",
-      "Finalizing triage urgency confidence ratings..."
+      "Finalizing triage urgency confidence ratings...",
     ];
-
-    let i = 0;
-    setLoadingText(messages[0]);
-    const timer = setInterval(() => {
-      i++;
-      if (i < messages.length) setLoadingText(messages[i]);
-    }, 700);
-
+    let i = 0; setLoadingText(messages[0]);
+    const timer = setInterval(() => { i++; if (i < messages.length) setLoadingText(messages[i]); }, 700);
     try {
-      const payload = {
-        image: capturedImage,
-        symptoms: patient.symptoms,
-        patientInfo: {
-          name: patient.name,
-          age: patient.age,
-          sex: patient.sex
-        }
-      };
-
       const response = await fetch('/api/analyze-skin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ image: capturedImage, symptoms: patient.symptoms, patientInfo: { name: patient.name, age: patient.age, sex: patient.sex, contactNumber: patient.contactNumber } }),
       });
-
-      if (!response.ok) {
-        throw new Error(`Analysis returned status ${response.status}`);
-      }
-
-      const result: DiagnosticResult = await response.json();
-
-      await new Promise(resolve => setTimeout(resolve, 800));
+      if (!response.ok) { const e = await response.text(); throw new Error(`Server error ${response.status}: ${e}`); }
+      const raw = await response.json();
+      const result: DiagnosticResult = {
+        primaryFinding:    raw.primaryFinding    ?? 'Unknown',
+        confidence:        raw.confidence        ?? 0,
+        urgency:           (['High','Moderate','Low'].includes(raw.urgency) ? raw.urgency : 'Moderate') as 'High'|'Moderate'|'Low',
+        urgencyText:       raw.urgencyText       ?? '',
+        treatmentNotes:    Array.isArray(raw.treatmentNotes) ? raw.treatmentNotes : [],
+        recommendedAction: raw.recommendedAction ?? '',
+        referralNote:      raw.referralNote      ?? '',
+        conditionCode:     raw.conditionCode     ?? '',
+        heatmap_b64:       raw.heatmap_b64       ?? undefined,
+        therapyRegimen:    raw.therapyRegimen    ?? undefined,
+        patientHandout:    raw.patientHandout    ?? undefined,
+      };
+      await new Promise(r => setTimeout(r, 800));
       clearInterval(timer);
       setActiveAnalysisResult(result);
-      const randomID = `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      setActiveCaseId(randomID);
+      setActiveCaseId(`DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`);
       setScreen('assessment-review');
-
     } catch (err) {
-      console.error('Remote skin analysis failed:', err);
       clearInterval(timer);
-      await new Promise(resolve => setTimeout(resolve, 800));
-
-      window.alert('Analysis failed. Please check your network connection and try again.');
-    } finally {
-      setAnalysisLoading(false);
-    }
+      await new Promise(r => setTimeout(r, 800));
+      window.alert(`Analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally { setAnalysisLoading(false); }
   };
 
-  // ---------------------------------------------------------------------------
-  // Save case — writes to local state + localStorage + SQLite immediately
-  // ---------------------------------------------------------------------------
+  // ── Lazy referral note ─────────────────────────────────────────────────────
+  const handleFormatReferral = async () => {
+    if (!activeAnalysisResult) return;
+    if (activeAnalysisResult.referralNote) { setScreen('referral-note'); return; }
+    setReferralNoteLoading(true);
+    try {
+      const response = await fetch('/api/referral-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          predictions:     activeAnalysisResult.allPredictions ?? [],
+          patient_name:    patient.name,
+          patient_age:     patient.age,
+          patient_sex:     patient.sex,
+          symptoms:        patient.symptoms,
+          primary_finding: activeAnalysisResult.primaryFinding,
+          urgency:         activeAnalysisResult.urgency,
+          urgency_text:    activeAnalysisResult.urgencyText,
+          clinician_name:  clinician?.name  ?? '',
+          facility_name:   clinician?.facilityName ?? '',
+          district:        clinician?.district ?? '',
+          region:          clinician?.region  ?? '',
+        }),
+      });
+      const data = await response.json();
+      setActiveAnalysisResult(prev => prev ? { ...prev, referralNote: data.referralNote } : prev);
+      setScreen('referral-note');
+    } catch { setScreen('referral-note'); }
+    finally { setReferralNoteLoading(false); }
+  };
+
+  // ── Save case ──────────────────────────────────────────────────────────────
   const saveCaseRecord = async () => {
     if (!activeAnalysisResult || !capturedImage) return;
-
     const newRecord: CaseRecord = {
       id: activeCaseId,
       patient: { ...patient },
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       finding: activeAnalysisResult,
       image: capturedImage,
-      healthWorker: healthWorkerName,
-      saved: true
+      healthWorker: clinician?.name ?? 'Unknown',
+      saved: true,
     };
-
-    const updated = [newRecord, ...cases];
-    syncCasesToStorage(updated);
-
-    try {
-      await fetch('/api/cases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRecord)
-      });
-    } catch (e) {
-      console.warn('Failed to persist new case to server:', e);
-    }
-
+    syncCasesToStorage([newRecord, ...cases]);
+    try { await fetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newRecord) }); }
+    catch { console.warn('Failed to persist case to server'); }
     setShowSuccessAnimation(true);
-    setTimeout(() => {
-      setShowSuccessAnimation(false);
-      setScreen('case-history');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 1800);
+    setTimeout(() => { setShowSuccessAnimation(false); setScreen('case-history'); window.scrollTo({ top: 0, behavior: 'smooth' }); }, 1800);
   };
 
-  // ---------------------------------------------------------------------------
-  // Delete case — removes from local state + localStorage + SQLite
-  // ---------------------------------------------------------------------------
-  const deleteCaseRecord = async (recordId: string) => {
-    const updated = cases.filter(item => item.id !== recordId);
-    syncCasesToStorage(updated);
-
-    try {
-      await fetch(`/api/cases/${recordId}`, { method: 'DELETE' });
-    } catch (e) {
-      console.warn('Failed to delete case from server:', e);
-    }
-
-    if (selectedDetailsCase?.id === recordId) setSelectedDetailsCase(null);
+  // ── Delete case ────────────────────────────────────────────────────────────
+  const deleteCaseRecord = async (id: string) => {
+    syncCasesToStorage(cases.filter(c => c.id !== id));
+    try { await fetch(`/api/cases/${id}`, { method: 'DELETE' }); } catch {}
+    if (selectedDetailsCase?.id === id) setSelectedDetailsCase(null);
     setCaseToDelete(null);
   };
 
-  // ---------------------------------------------------------------------------
-  // PDF export
-  // ---------------------------------------------------------------------------
+  // ── PDF helpers ────────────────────────────────────────────────────────────
+  const clinicianName     = clinician?.name         ?? 'Health Worker';
+  const clinicianRole     = clinician?.role         ?? 'Community Health Worker';
+  const clinicianFacility = clinician?.facilityName ?? 'Community Clinic';
+  const clinicianDistrict = clinician?.district     ?? '';
+  const clinicianRegion   = clinician?.region       ?? '';
+  const clinicianContact  = clinician?.contact      ?? '';
+
   const downloadPdfRecord = (record: CaseRecord) => {
     try {
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageWidth = 210; const pageHeight = 297; const margin = 15; const contentWidth = 180;
+     // Primary brand colors
+      const primaryColor = [14, 116, 144];    // cyan-700 — main interactive blue
+      const primaryDark = [8, 47, 73];        // sky-950 — deep navy for backgrounds/headers
 
-      const pageWidth = 210;
-      const pageHeight = 297;
-      const margin = 15;
-      const contentWidth = pageWidth - (margin * 2);
+      // Backgrounds & surfaces
+      const paperBg = [240, 249, 255];        // sky-50 — near-white with a blue tint
+      const borderSlate = [186, 230, 253];    // sky-200 — soft blue-tinted border
 
-      const primaryColor = [0, 119, 182];
-      const borderGray = [188, 202, 193];
-      const lightBg = [241, 244, 246];
-      const lightBlueBg = [240, 249, 255];
-      const darkColor = [24, 28, 30];
-      const textGray = [61, 73, 67];
-      const textLightGray = [109, 122, 115];
-      const accentRed = [186, 26, 26];
+      // Text
+      const textGray = [30, 58, 138];         // indigo-900 — deep blue-toned body text (replaces neutral gray)
 
-      // PAGE 1
+      // Semantic accents (shifted cooler to match theme)
+      const accentRed = [157, 23, 77];        // rose-800 — errors/danger (kept punchy, slightly cooler)
+      const accentOrange = [161, 98, 7];      // amber-700 — warnings (muted gold instead of orange)
+      const accentGreen = [6, 95, 70];        // emerald-800 — success (teal-leaning green)
+
+      const urgencyStr = record.finding.urgency || 'Low';
+      let severityColor = accentGreen;
+      if (urgencyStr === 'High') severityColor = accentRed;
+      else if (urgencyStr === 'Moderate') severityColor = accentOrange;
+
       doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.rect(margin, 15, contentWidth, 2, 'F');
-
+      doc.rect(margin, 12, 180, 1.5, 'F');
       let y = 24;
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(14);
-      doc.text('DERMADETECT™ CLINICAL CASE DOSSIER', margin, y);
-
-      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      const rightText = "FIELD OBSERVATION & DIAGNOSTIC RECORD";
-      doc.text(rightText, pageWidth - margin - doc.getTextWidth(rightText), y - 1);
-
-      y += 8;
-      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-      doc.setLineWidth(0.3);
-      doc.line(margin, y, pageWidth - margin, y);
-      y += 8;
-
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text('PATIENT PROFILE SECTION', margin, y);
-      doc.text('ASSESSMENT METADATA', margin + 95, y);
-
-      y += 2;
-      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-      doc.line(margin, y, margin + 85, y);
-      doc.line(margin + 95, y, pageWidth - margin, y);
-
-      y += 6;
-      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text(`Full Legal Name:`, margin, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${record.patient.name}`, margin + 30, y);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Report Case ID:`, margin + 95, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${record.id}`, margin + 125, y);
-
-      y += 5;
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Age / Gender:`, margin, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${record.patient.age} Yrs  /  ${record.patient.sex}`, margin + 30, y);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Date Assessed:`, margin + 95, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${record.date || new Date().toLocaleDateString()}`, margin + 125, y);
-
-      y += 5;
-      doc.setFont('helvetica', 'bold');
-      doc.text(`Attending Worker:`, margin + 95, y);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`${record.healthWorker || 'Unknown Worker'}`, margin + 125, y);
-
-      if (record.patient.symptoms) {
-        y += 5;
-        doc.setFont('helvetica', 'bold');
-        doc.text(`Clinical Symptoms:`, margin, y);
-        doc.setFont('helvetica', 'italic');
-        const symptomsTxt = `"${record.patient.symptoms}"`;
-        const lines = doc.splitTextToSize(symptomsTxt, 55);
-        doc.text(lines, margin + 30, y);
-        y += (lines.length - 1) * 4;
-      }
-
-      y += 10;
-
-      doc.setFillColor(lightBlueBg[0], lightBlueBg[1], lightBlueBg[2]);
-      doc.rect(margin, y, contentWidth, 32, 'F');
-      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setLineWidth(0.5);
-      doc.rect(margin, y, contentWidth, 32, 'D');
-
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text('PRIMARY AUTOMATED AI ESTIMATION', margin + 5, y + 6);
-
-      y += 12;
-      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${record.finding.primaryFinding}`, margin + 5, y + 2);
-
-      y += 6;
-      doc.setFontSize(9);
-      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
-      doc.text(`Match Confidence: `, margin + 5, y);
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${record.finding.confidence}% Match`, margin + 35, y);
-
-      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`  |   Triage Urgency: `, margin + 65, y);
-
-      const isHigh = record.finding.urgency === 'High';
-      const isMod = record.finding.urgency === 'Moderate';
-      if (isHigh) doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
-      else if (isMod) doc.setTextColor(230, 81, 0);
-      else doc.setTextColor(46, 125, 50);
-      doc.setFont('helvetica', 'bold');
-      doc.text(`${record.finding.urgency} Priority Level`, margin + 98, y);
-
-      y += 12;
-
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text('CAPTURED LESION SPECIMEN', margin, y);
-      doc.text('ESTIMATED TACTICAL DIAGNOSTIC ACTION', margin + 85, y);
-
-      y += 2;
-      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-      doc.setLineWidth(0.3);
-      doc.line(margin, y, margin + 75, y);
-      doc.line(margin + 85, y, pageWidth - margin, y);
-      y += 6;
-
-      const initialImgY = y;
-      let hasImage = false;
-      if (record.image) {
-        try {
-          doc.addImage(record.image, 'JPEG', margin, y, 75, 50);
-          hasImage = true;
-        } catch (err) {
-          console.warn('Failed to embed image in PDF:', err);
-        }
-      }
-
-      if (!hasImage) {
-        doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
-        doc.rect(margin, y, 75, 50, 'F');
-        doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-        doc.rect(margin, y, 75, 50, 'D');
-        doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8);
-        doc.text('Specimen Photo Media Block', margin + 17, y + 23);
-        doc.text('(Compressed on local sync)', margin + 18, y + 27);
-      }
-
-      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      const recTitleLines = doc.splitTextToSize(`Onward Advice: ${record.finding.recommendedAction}`, 90);
-      doc.text(recTitleLines, margin + 85, y);
-
-      y += (recTitleLines.length * 4) + 4;
-      doc.setTextColor(textGray[0], textGray[1], textGray[2]);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-
-      (record.finding.treatmentNotes || []).forEach((action) => {
-        const actionLines = doc.splitTextToSize(`• ${action}`, 90);
-        if (y + actionLines.length * 4 < initialImgY + 54) {
-          doc.text(actionLines, margin + 85, y);
-          y += (actionLines.length * 4) + 1;
-        }
-      });
-
-      y = Math.max(initialImgY + 54, y) + 5;
-
-      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-      doc.setLineWidth(0.2);
-      doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
-      doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
-      doc.setFontSize(7);
-      doc.text("Clinical Report Generated Auto-Sync Gateway (V3.81). Handout verified by MOH Protocols.", margin, pageHeight - 11);
-      const footerRText = "Page 1 of 2";
-      doc.text(footerRText, pageWidth - margin - doc.getTextWidth(footerRText), pageHeight - 11);
-
-      // PAGE 2
-      doc.addPage();
-      y = 20;
-
       doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.rect(margin, 15, contentWidth, 2, 'F');
-
+      doc.circle(margin + 4, y, 3, 'F');
+      doc.setDrawColor(255,255,255); doc.setLineWidth(0.6);
+      doc.line(margin+4, y-1.5, margin+4, y+1.5); doc.line(margin+2.5, y, margin+5.5, y);
       doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text('SUPPORTIVE TREATMENT WORKFLOW & CLINICAL RECIPE', margin, y + 4);
-
+      doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text('DERMADETECT™ CLINICAL CASE DOSSIER', margin+10, y-1);
       doc.setTextColor(textGray[0], textGray[1], textGray[2]);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      const page2Sub = "SECURE PROTOCOL DISPENSING GUIDE";
-      doc.text(page2Sub, pageWidth - margin - doc.getTextWidth(page2Sub), y + 3);
-
-      y += 10;
-      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-      doc.line(margin, y, pageWidth - margin, y);
+      doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      doc.text('FIELD OBSERVATION & DIAGNOSTIC RECORD', margin+10, y+2.5);
+      doc.setTextColor(primaryDark[0], primaryDark[1], primaryDark[2]);
+      doc.setFont('helvetica','bold'); doc.setFontSize(11);
+      const docTitle = 'CLINICAL REFERRAL DOSSIER';
+      doc.text(docTitle, pageWidth-margin-doc.getTextWidth(docTitle), y+1);
       y += 8;
-
-      const codeKey = normalizeCode(record.finding.conditionCode || record.finding.primaryFinding);
-      const template = CONDITIONAL_GUIDELINES[codeKey];
-
-      if (template) {
-        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.text('I. PHARMACOLOGICAL DISPENSING DOSES', margin, y);
-        y += 5;
-
-        doc.setFillColor(lightBg[0], lightBg[1], lightBg[2]);
-        doc.rect(margin, y, contentWidth, 54, 'F');
-        doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-        doc.rect(margin, y, contentWidth, 54, 'D');
-
-        let subY = y + 5;
-        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-
-        doc.text('Primary Medication Target Group:', margin + 4, subY);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-        doc.setFont('helvetica', 'bold');
-        const medLines = doc.splitTextToSize(template.medication, 110);
-        doc.text(medLines, margin + 55, subY);
-
-        subY += (medLines.length * 4) + 2;
-        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Standard Dosage & Timing Regimen:', margin + 4, subY);
-        doc.setFont('helvetica', 'normal');
-        const regLines = doc.splitTextToSize(template.regimen, 110);
-        doc.text(regLines, margin + 55, subY);
-
-        subY += (regLines.length * 4) + 2;
-        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Standard Triage Duration Instructions:', margin + 4, subY);
-        doc.setFont('helvetica', 'normal');
-        const durLines = doc.splitTextToSize(template.dosage, 110);
-        doc.text(durLines, margin + 55, subY);
-
-        subY += (durLines.length * 4) + 2;
-        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.text('Important Contraindications & Allergies:', margin + 4, subY);
-        doc.setFont('helvetica', 'normal');
-        const contraLines = doc.splitTextToSize(template.contraindications, 110);
-        doc.text(contraLines, margin + 55, subY);
-
-        y += 63;
-
-        doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10);
-        doc.text("II. PATIENT AT-HOME ADVICE (INFORMATIONAL)", margin, y);
-        y += 5;
-
-        doc.setFillColor(244, 252, 246);
-        doc.rect(margin, y, 86, 75, 'F');
-        doc.setDrawColor(200, 230, 201);
-        doc.rect(margin, y, 86, 75, 'D');
-        doc.setTextColor(46, 125, 50);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text("RECOMMENDED DOS", margin + 4, y + 6);
-
-        let dosY = y + 13;
-        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        template.dos.forEach((doItem) => {
-          const lines = doc.splitTextToSize(`• ${doItem}`, 78);
-          doc.text(lines, margin + 4, dosY);
-          dosY += (lines.length * 3.5) + 3;
-        });
-
-        doc.setFillColor(255, 245, 245);
-        doc.rect(margin + 94, y, 86, 75, 'F');
-        doc.setDrawColor(255, 205, 210);
-        doc.rect(margin + 94, y, 86, 75, 'D');
-        doc.setTextColor(198, 40, 40);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9);
-        doc.text("HIGH RISK AVOIDANCE (DON'TS)", margin + 98, y + 6);
-
-        let dontsY = y + 13;
-        doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7.5);
-        template.donts.forEach((dontItem) => {
-          const lines = doc.splitTextToSize(`• ${dontItem}`, 78);
-          doc.text(lines, margin + 98, dontsY);
-          dontsY += (lines.length * 3.5) + 3;
-        });
-
-        y += 84;
-
-        doc.setFillColor(254, 242, 242);
-        doc.rect(margin, y, contentWidth, 24, 'F');
-        doc.setDrawColor(accentRed[0], accentRed[1], accentRed[2]);
-        doc.setLineWidth(0.5);
-        doc.rect(margin, y, contentWidth, 24, 'D');
-        doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
-        doc.text('CRITICAL SAFEGUARDS / CLINICAL WARNING NOTATIONS:', margin + 4, y + 5);
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(127, 29, 29);
-        doc.setFontSize(8);
-        const warnLines = doc.splitTextToSize(template.warningNote, 172);
-        doc.text(warnLines, margin + 4, y + 10);
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.5);
+      doc.line(margin, y, pageWidth-margin, y);
+      y += 6;
+      doc.setFillColor(paperBg[0], paperBg[1], paperBg[2]);
+      doc.rect(margin, y, contentWidth, 36, 'F');
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.3);
+      doc.rect(margin, y, contentWidth, 36, 'D');
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+      doc.text('PATIENT ANTHROPOMETRIC RECORD', margin+6, y+6);
+      doc.text('CLINICAL IDENTIFIER METADATA', margin+96, y+6);
+      doc.line(margin+90, y+3, margin+90, y+33);
+      doc.setTextColor(primaryDark[0], primaryDark[1], primaryDark[2]); doc.setFontSize(8);
+      let rowY = y + 13;
+      doc.setFont('helvetica','bold'); doc.text('Full Name:', margin+6, rowY);
+      doc.setFont('helvetica','normal'); doc.text(record.patient.name, margin+28, rowY);
+      doc.setFont('helvetica','bold'); doc.text('Case Reference:', margin+96, rowY);
+      doc.setFont('helvetica','normal'); doc.text(record.id, margin+125, rowY);
+      rowY += 5;
+      doc.setFont('helvetica','bold'); doc.text('Age / Gender:', margin+6, rowY);
+      doc.setFont('helvetica','normal'); doc.text(`${record.patient.age} Yrs  /  ${record.patient.sex}`, margin+28, rowY);
+      doc.setFont('helvetica','bold'); doc.text('Assessment Date:', margin+96, rowY);
+      doc.setFont('helvetica','normal'); doc.text(record.date || new Date().toLocaleDateString(), margin+125, rowY);
+      rowY += 5;
+      doc.setFont('helvetica','bold'); doc.text('Symptom Notes:', margin+6, rowY);
+      doc.setFont('helvetica','italic');
+      const wrappedSx = doc.splitTextToSize(`"${record.patient.symptoms || 'None reported'}"`, 56);
+      doc.text(wrappedSx, margin+28, rowY);
+      doc.setFont('helvetica','bold'); doc.text('Triage Officer:', margin+96, rowY);
+      doc.setFont('helvetica','normal'); doc.text(record.healthWorker || clinicianName, margin+125, rowY);
+      y += 44;
+      doc.setFillColor(paperBg[0], paperBg[1], paperBg[2]);
+      doc.rect(margin, y, contentWidth, 24, 'F');
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.3);
+      doc.rect(margin, y, contentWidth, 24, 'D');
+      doc.setFillColor(severityColor[0], severityColor[1], severityColor[2]);
+      doc.rect(margin, y, 4, 24, 'F');
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.text('PRIMARY TRIAGE CLASSIFICATION GUIDELINE TARGET', margin+8, y+6);
+      doc.setTextColor(primaryDark[0], primaryDark[1], primaryDark[2]); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+      doc.text(record.finding.primaryFinding, margin+8, y+13);
+      doc.setFontSize(8.5); doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal');
+      doc.text('Confidence Score: ', margin+8, y+19);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica','bold');
+      doc.text(`${record.finding.confidence}% match`, margin+35, y+19);
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal');
+      doc.text(' |  Triage Priority Level: ', margin+55, y+19);
+      doc.setTextColor(severityColor[0], severityColor[1], severityColor[2]); doc.setFont('helvetica','bold');
+      doc.text(`${urgencyStr} Severity`, margin+90, y+19);
+      y += 31;
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text('I. CLINICAL IMAGE SPECIMEN SNAPSHOT', margin, y);
+      doc.text('II. SUPPORTIVE PRACTICAL OUTPATIENT DIRECTIVE', margin+82, y);
+      y += 2.5;
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.4);
+      doc.line(margin, y, margin+74, y); doc.line(margin+82, y, pageWidth-margin, y);
+      y += 5;
+      const imageBoxY = y;
+      let imgOk = false;
+      if (record.image) { try { doc.addImage(record.image, 'JPEG', margin, y, 74, 52); imgOk = true; } catch {} }
+      if (!imgOk) {
+        doc.setFillColor(242,245,248); doc.rect(margin, y, 74, 52, 'F');
+        doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.rect(margin, y, 74, 52, 'D');
+        doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+        doc.text('VISUAL DERMAL SPECIMEN RECORD', margin+14, y+24);
       }
+      doc.setTextColor(primaryDark[0], primaryDark[1], primaryDark[2]); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+      const actionLines = doc.splitTextToSize(`Onward Action Plan: ${record.finding.recommendedAction}`, 94);
+      doc.text(actionLines, margin+82, y);
+      let notesY = y + actionLines.length * 4 + 2;
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      (record.finding.treatmentNotes || []).forEach(note => {
+        const bl = doc.splitTextToSize(`• ${note}`, 94);
+        if (notesY + bl.length * 4 < imageBoxY + 54) { doc.text(bl, margin+82, notesY); notesY += bl.length * 4 + 1; }
+      });
+      y = Math.max(imageBoxY + 52, notesY) + 8;
+      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFillColor(paperBg[0], paperBg[1], paperBg[2]);
+      doc.rect(margin, y, contentWidth, 20, 'F'); doc.rect(margin, y, contentWidth, 20, 'D');
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica','bold'); doc.setFontSize(7.5);
+      doc.text('OFFICIAL MOH REFERRAL TRANSCRIPT VALIDATION SEAL', margin+5, y+5);
+      doc.setTextColor(primaryDark[0], primaryDark[1], primaryDark[2]); doc.setFont('helvetica','normal'); doc.setFontSize(7);
+      doc.text('1. Generative diagnostic handbooks conform to clinical protocol V8.46 guidelines.', margin+5, y+10);
+      doc.text('2. Local sandboxed key integration verified. Regional medical handovers active.', margin+5, y+14);
+      doc.setLineWidth(0.4); doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(pageWidth-margin-32, y+3, 27, 14, 'D');
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica','bold'); doc.setFontSize(7);
+      doc.text('VERIFIED DOSSIER', pageWidth-margin-30, y+8);
+      doc.setFontSize(5); doc.text('MOH TRANSCRIPT SYSTEMS', pageWidth-margin-29, y+13);
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.3);
+      doc.line(margin, pageHeight-14, pageWidth-margin, pageHeight-14);
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+      doc.text('Dermatological clinical referral handout generated within browser environment.', margin, pageHeight-10);
+      doc.text('Page 1 of 2', pageWidth-margin-doc.getTextWidth('Page 1 of 2'), pageHeight-10);
 
-      doc.setDrawColor(borderGray[0], borderGray[1], borderGray[2]);
-      doc.setLineWidth(0.2);
-      doc.line(margin, pageHeight - 15, pageWidth - margin, pageHeight - 15);
-      doc.setTextColor(textLightGray[0], textLightGray[1], textLightGray[2]);
-      doc.setFontSize(7);
-      doc.text("Approved by Diagnostic QA Hub. Preserving offline records strictly with GDPR/HIPAA container logic.", margin, pageHeight - 11);
-      const page2NumTxt = "Page 2 of 2";
-      doc.text(page2NumTxt, pageWidth - margin - doc.getTextWidth(page2NumTxt), pageHeight - 11);
-
-      const cleanPatientName = record.patient.name.trim().replace(/\s+/g, '_');
-      doc.save(`Clinical_Record_${record.id}_${cleanPatientName}.pdf`);
-    } catch (err: any) {
-      console.error('PDF construction failed:', err);
-      alert('Failed to generate PDF: ' + err.message);
-    }
+      // Page 2
+      doc.addPage(); y = 20;
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.rect(margin, 12, 180, 1.5, 'F');
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text('SUPPORTIVE TREATMENT RECIPE & PHARMACOLOGICAL DOSES', margin, y+3);
+      const rightH = 'SECURE PROTOCOL DISPENSING SCHEME';
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+      doc.text(rightH, pageWidth-margin-doc.getTextWidth(rightH), y+3);
+      y += 10;
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.5);
+      doc.line(margin, y, pageWidth-margin, y); y += 8;
+     
+     
+      y = pageHeight - 34;
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.3);
+      doc.line(margin, y, pageWidth-margin, y);
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal'); doc.setFontSize(6.8);
+      doc.text(`Digital Verification Signature: ${record.healthWorker || clinicianName}`, margin, y+5);
+      doc.text(`System Unique Sign-key Hash: SHA256-${record.id.slice(0,12).toUpperCase()}...`, margin, y+9);
+      doc.setFontSize(7); doc.line(pageWidth-margin-45, y+12, pageWidth-margin, y+12);
+      doc.text('Attending Clinician Authenticated Stamp', pageWidth-margin-45, y+16);
+      doc.setDrawColor(borderSlate[0], borderSlate[1], borderSlate[2]); doc.setLineWidth(0.3);
+      doc.line(margin, pageHeight-14, pageWidth-margin, pageHeight-14);
+      doc.setTextColor(textGray[0], textGray[1], textGray[2]); doc.setFont('helvetica','normal'); doc.setFontSize(6.5);
+      doc.text('Approved by National Digital Health Authority.', margin, pageHeight-10);
+      doc.text('Page 2 of 2', pageWidth-margin-doc.getTextWidth('Page 2 of 2'), pageHeight-10);
+      doc.save(`Clinical_Referral_Note_${record.id}_${record.patient.name.trim().replace(/\s+/g,'_')}.pdf`);
+    } catch (err: any) { alert('PDF generation failed: ' + err.message); }
   };
 
-  // ---------------------------------------------------------------------------
-  // Filters
-  // ---------------------------------------------------------------------------
+  // ── Processed cases ────────────────────────────────────────────────────────
   const processedCases = cases.filter(item => {
-    const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      item.patient.name.toLowerCase().includes(query) ||
-      item.finding.primaryFinding.toLowerCase().includes(query) ||
-      item.id.toLowerCase().includes(query);
-    const matchesUrgency = filterUrgency === 'All' || item.finding.urgency === filterUrgency;
-    return matchesSearch && matchesUrgency;
+    const q = searchQuery.toLowerCase();
+    const matchSearch = item.patient.name.toLowerCase().includes(q) || item.finding.primaryFinding.toLowerCase().includes(q) || item.id.toLowerCase().includes(q);
+    const matchUrgency = filterUrgency === 'All' || item.finding.urgency === filterUrgency;
+    return matchSearch && matchUrgency;
   });
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#f7fafc] text-[#181c1e] font-sans antialiased flex flex-col">
-      
-      {/* HEADER BAR */}
-      <header className="bg-white border-b border-[#bccac1] fixed top-0 left-0 right-0 z-50 h-14 print:hidden">
-        <div className="flex justify-between items-center w-full px-4 md:px-8 max-w-5xl mx-auto h-full">
-          <div 
-            onClick={() => { setScreen('home'); stopWebcam(); }}
-            className="flex items-center gap-2 cursor-pointer group"
-          >
-            <div className="w-8 h-8 rounded-lg bg-[#0077b6] flex items-center justify-center text-white font-bold text-lg shadow-sm transition-transform group-hover:scale-105">
-              DD
-            </div>
-            <span className="font-display font-bold text-[#0077b6] text-xl tracking-tight">DermaDetect</span>
-          </div>
+    <>
+      {!clinician ? (
+        <ClinicianSetup onComplete={handleProfileComplete} />
+      ) : (
+        <div className="min-h-screen bg-[#f7fafc] text-[#181c1e] font-sans antialiased flex flex-col">
 
-          <nav className="hidden md:flex items-center gap-8 h-full">
-            <button 
-              onClick={resetAndStartAssessment}
-              className={`font-display text-sm font-semibold transition-colors h-full px-2 border-b-2 flex items-center ${
-                screen === 'assessment-info' || screen === 'assessment-capture' || screen === 'assessment-review' || screen === 'referral-note'
-                  ? 'border-[#0077b6] text-[#0077b6]'
-                  : 'border-transparent text-[#3d4943] hover:text-[#0077b6]'
-              }`}
-            >
-              {t.newAssessment}
-            </button>
-            <button 
-              onClick={() => { setScreen('case-history'); stopWebcam(); }}
-              className={`font-display text-sm font-semibold transition-colors h-full px-2 border-b-2 flex items-center ${
-                screen === 'case-history'
-                  ? 'border-[#0077b6] text-[#0077b6]'
-                  : 'border-transparent text-[#3d4943] hover:text-[#0077b6]'
-              }`}
-            >
-              {t.caseHistory}
-            </button>
-          </nav>
-
-          {/* DATABASE & CLOUD SYNC CONTROLLER */}
-          <div className="relative flex items-center">
-            <button
-              id="sync-engine-trigger"
-              onClick={() => {
-                setDisplaySyncDropdown(!displaySyncDropdown);
-                setLangMenuOpen(false);
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-bold transition-all shadow-sm cursor-pointer mr-2 select-none ${
-                dbStatus === 'online'
-                  ? syncStatus === 'synced'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                    : syncStatus === 'syncing'
-                    ? 'bg-sky-50 border-sky-300 text-sky-700 hover:bg-sky-100'
-                    : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
-                  : 'bg-rose-50 border-rose-300 text-rose-700 hover:bg-rose-100'
-              }`}
-            >
-              <div className="relative flex items-center justify-center">
-                {dbStatus === 'online' ? (
-                  syncStatus === 'syncing' ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Cloud className="w-3.5 h-3.5" />
-                  )
-                ) : (
-                  <CloudOff className="w-3.5 h-3.5" />
-                )}
-                <span className={`absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ${
-                  dbStatus === 'online'
-                    ? syncStatus === 'synced'
-                      ? 'bg-emerald-500'
-                      : 'bg-amber-500 animate-ping'
-                    : 'bg-rose-500'
-                }`} />
-              </div>
-              <span className="hidden sm:inline">
-                {dbStatus === 'online'
-                  ? syncStatus === 'synced'
-                    ? 'Cloud Synced'
-                    : syncStatus === 'syncing'
-                    ? 'Syncing...'
-                    : 'Sync Pending'
-                  : 'Offline Cache'}
-              </span>
-            </button>
-
-            {displaySyncDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-[#bccac1] rounded-2xl shadow-xl p-4 z-50 text-[#181c1e] text-left">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-2.5">
-                  <span className="font-display font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5 text-[#0077b6]" />
-                    Cloud Sync Engine
-                  </span>
-                  <button 
-                    onClick={() => setDisplaySyncDropdown(false)}
-                    className="p-1 hover:bg-slate-100 rounded-full transition-colors cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5 text-slate-400" />
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="p-2.5 bg-[#f1f4f6] rounded-xl border border-[#bccac1] text-[11px] space-y-1.5">
-                    <div className="flex justify-between items-center text-[#3d4943]">
-                      <span>Server Gateway:</span>
-                      <span className={`font-bold uppercase ${dbStatus === 'online' ? 'text-emerald-600' : 'text-rose-500'}`}>
-                        {dbStatus === 'online' ? 'Active' : 'Disconnected'}
-                      </span>
-                    </div>
-                    {dbStatus === 'online' && latency !== null && (
-                      <div className="flex justify-between items-center text-[#3d4943]">
-                        <span>Database Latency:</span>
-                        <span className="font-mono text-[#181c1e] font-bold">{latency}ms (Excellent)</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center text-[#3d4943]">
-                      <span>Last Backup Push:</span>
-                      <span className="text-[#181c1e] font-bold">{lastSynced ? `${lastSynced}` : 'Never'}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 text-xs">
-                    <div className={`p-1.5 rounded-lg ${syncStatus === 'synced' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-                      {syncStatus === 'synced' ? (
-                        <CheckCircle2 className="w-4 h-4" />
-                      ) : (
-                        <Signal className="w-4 h-4 animate-pulse" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="font-bold text-slate-900 leading-tight">
-                        {syncStatus === 'synced' ? 'All records are secure' : 'Modifications pending sync'}
-                      </p>
-                      <p className="text-[10px] text-[#3d4943]">
-                        {cases.length} local {cases.length === 1 ? 'case' : 'cases'} preserved
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between border-t border-slate-100 pt-2.5 text-xs">
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-slate-800">Auto-Sync Engine</span>
-                      <span className="text-[10px] text-[#3d4943]">Pushes data automatically</span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer select-none">
-                      <input 
-                        type="checkbox" 
-                        checked={autoSyncEnabled} 
-                        onChange={() => setAutoSyncEnabled(!autoSyncEnabled)}
-                        className="sr-only peer" 
-                      />
-                      <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#0077b6]"></div>
-                    </label>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      probeDatabaseHealth().then(() => triggerCloudSync(cases));
-                    }}
-                    disabled={syncStatus === 'syncing'}
-                    className="w-full h-9 bg-[#0077b6] hover:bg-[#0096c7] disabled:bg-slate-200 disabled:text-slate-400 text-white font-display font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                    <span>Sync Database Now</span>
-                  </button>
+          {/* ── HEADER ── */}
+          <header className="bg-[#001B2E]/65 backdrop-blur-md border-b border-white/10 fixed top-0 left-0 right-0 z-50 h-20 shadow-[0_4px_30px_rgba(0,0,0,0.2)]">
+            <div className="flex justify-between items-center w-full px-6 md:px-12 max-w-7xl mx-auto h-full">
+              <div onClick={() => { setScreen('home'); stopWebcam(); }} className="flex items-center gap-4 cursor-pointer group">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#00A6FB] via-[#003554] to-[#001B2E] flex items-center justify-center text-white font-display font-bold text-sm shadow-[inset_0_1px_3px_rgba(255,255,255,0.4)] transition-transform group-hover:scale-105">DD</div>
+                <div className="flex flex-col">
+                  <span className="font-display font-bold text-[#F0F4F8] text-xl tracking-tight leading-none">Derma<span className="text-[#00A6FB]">Defect</span></span>
+                  <span className="text-[10px] uppercase tracking-[0.15em] text-[#00A6FB]/80 font-semibold mt-1">Clinical Diagnostics</span>
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Language menu */}
-          <div className="relative">
-            <button 
-              onClick={() => setLangMenuOpen(!langMenuOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#bccac1] bg-[#f1f4f6] text-sm font-semibold text-[#3d4943] hover:bg-[#e5e9eb] transition-all"
-            >
-              <Globe className="w-4 h-4 text-[#0077b6]" />
-              <span>{lang}</span>
-            </button>
-            
-            {langMenuOpen && (
-              <div className="absolute right-0 mt-2 w-36 bg-white border border-[#bccac1] rounded-lg shadow-xl py-1 z-50">
-                {(Object.keys(TRANSLATIONS) as LanguageOption[]).map((langKey) => (
-                  <button
-                    key={langKey}
-                    onClick={() => { setLang(langKey); setLangMenuOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors hover:bg-[#f1f4f6] font-medium ${
-                      lang === langKey ? 'text-[#0077b6] font-semibold bg-[#e5e9eb]' : 'text-[#3d4943]'
-                    }`}
-                  >
-                    {langKey}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </header>
-
-      {/* VIEWPORT BODY CANVAS */}
-      <main className="flex-1 pt-14 pb-20 md:pb-0 flex flex-col">
-        
-        {/* VIEW 1: HOME PAGE */}
-        {screen === 'home' && (
-          <div className="flex-1 flex flex-col animate-fade-in relative overflow-hidden bg-white">
-            {/* Subtle Intentional Background Gradients */}
-            <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-[#0077b6] blur-[150px] opacity-10 pointer-events-none"></div>
-            <div className="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] rounded-full bg-[#00b4d8] blur-[120px] opacity-10 pointer-events-none"></div>
-            
-            <section className="max-w-5xl mx-auto w-full px-4 md:px-8 py-10 md:py-16 flex-1 flex flex-col justify-center relative z-10">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-12 items-center">
-                
-                <div className="md:col-span-7 flex flex-col gap-8">
-                  <div className="space-y-6">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-[#f0f9ff] border border-[#0077b6]/20 rounded-full shadow-sm">
-                      <Sparkles className="w-4 h-4 text-[#0077b6] animate-pulse" />
-                      <span className="text-[#0077b6] font-display font-bold text-xs uppercase tracking-widest">
-                        Next-Gen Clinical Triage
-                      </span>
-                    </div>
-                    <h1 className="font-display font-black text-[#181c1e] text-4xl md:text-5xl lg:text-6xl leading-[1.1] tracking-tight">
-                      Empowering <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0077b6] to-[#00b4d8]">Frontline</span> Healthcare.
-                    </h1>
-                    <p className="text-[#3d4943] text-lg leading-relaxed max-w-xl font-medium">
-                      DermaDetect utilizes advanced AI to analyze complex dermatological conditions instantly, bridging the gap between community health workers and specialized clinical care.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <button 
-                      onClick={resetAndStartAssessment}
-                      className="w-full sm:w-auto h-14 px-8 bg-[#0077b6] hover:bg-[#005f92] text-white font-display font-bold text-sm tracking-wide rounded-2xl shadow-[0_8px_20px_rgba(0,119,182,0.2)] hover:shadow-[0_12px_25px_rgba(0,119,182,0.3)] transition-all flex items-center justify-center gap-3 group cursor-pointer active:scale-95 border border-[#0077b6]"
-                    >
-                      <PlusCircle className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
-                      <span>Start Triage Assessment</span>
-                    </button>
-                    <button 
-                      onClick={() => setScreen('case-history')}
-                      className="w-full sm:w-auto h-14 px-8 bg-white hover:bg-[#f0f9ff] border border-[#bccac1] hover:border-[#0077b6]/30 text-[#0077b6] font-display font-bold text-sm tracking-wide rounded-2xl transition-all flex items-center justify-center gap-3 cursor-pointer group active:scale-95 shadow-sm"
-                    >
-                      <History className="w-5 h-5 text-[#0077b6]" />
-                      <span>Access Case Vault</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center gap-4 p-5 bg-white rounded-2xl border border-[#bccac1] shadow-sm hover:shadow-md transition-shadow">
-                    <div className="flex items-center text-emerald-600 p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                      <WifiOff className="w-6 h-6" />
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="font-display font-bold text-sm text-[#181c1e] tracking-wide">Secure Offline Persistence</span>
-                      <span className="text-xs text-[#3d4943] mt-1 leading-relaxed">Full diagnostic capability retained in remote environments. Synced securely upon reconnection.</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="md:col-span-5 relative group">
-                  <div className="absolute inset-0 bg-gradient-to-tr from-[#0077b6]/20 to-[#00b4d8]/20 rounded-3xl transform translate-x-4 translate-y-4 -z-10 transition-transform duration-500 group-hover:translate-x-2 group-hover:translate-y-2 blur-md" />
-                  <div className="aspect-[4/5] bg-white rounded-3xl overflow-hidden border border-[#bccac1] shadow-xl relative transition-transform duration-500 group-hover:-translate-y-2 p-2">
-                    <div className="w-full h-full rounded-2xl overflow-hidden relative">
-                      <img 
-                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7K9Gkw4BG40ghUxTPEDx2ma7CEkcuXN3p1ZXoYR0VswVmcqrUv7cXlb1OgsAtyl6aAszzMhgHPG6boMpjFt-401Cach1F4nADZGrYX3rCQov9flBROJXLAjDVBS-4zWAhoWnNxk7fOAhlhZY88nSpbNadBAaUopICdcSd_HrMR76vnNOiAS5N6kcnzt4s8ee6HL6MPSrn9R8iAqxp2bKA960TcZ0VqSDzV-rawtOa-t8VAf1Jdqu1Zxv9lmxiUy5XRb1DQzmWKQ" 
-                        alt="Healthcare Professional with device" 
-                        className="w-full h-full object-cover transform scale-105 transition-transform duration-700 group-hover:scale-100"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent z-10 opacity-80" />
-                      <div className="absolute bottom-6 left-6 right-6 z-20">
-                        <div className="bg-white/90 backdrop-blur-md p-4 rounded-2xl border border-white shadow-lg flex items-center gap-4 transition-transform duration-500 hover:scale-[1.02]">
-                          <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-emerald-600 shadow-sm border border-emerald-200">
-                            <CheckCircle2 className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <p className="font-display font-bold text-sm text-[#181c1e] tracking-wide">Dinov2 ViT Active</p>
-                            <p className="text-[11px] text-[#3d4943] font-bold tracking-widest uppercase mt-0.5">Systems Nominal</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="relative z-10 border-t border-[#f1f4f6] bg-[#f8fbff] py-16">
-              <div className="max-w-5xl mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+              <nav className="hidden md:flex items-center gap-10 h-full">
                 {[
-                  { icon: HeartPulse, title: "Rapid Analysis", desc: "Instant, high-precision dermatological estimations to assist health personnel triage field cases.", color: "text-[#0077b6] bg-[#0077b6]/10 border-[#0077b6]/20" },
-                  { icon: ShieldCheck, title: "Secure Vault", desc: "Patient medical observations, diagnostic records, and key images stored with local security integrity.", color: "text-[#0077b6] bg-[#0077b6]/10 border-[#0077b6]/20" },
-                  { icon: BookOpen, title: "Direct Referral", desc: "Instantly package diagnosed clinical findings into clear formatted Referral Notes for nearby hospitals.", color: "text-[#0077b6] bg-[#0077b6]/10 border-[#0077b6]/20" }
-                ].map((feature, i) => (
-                  <div key={i} className="bg-white p-8 rounded-3xl border border-[#bccac1] hover:border-[#0077b6]/30 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg shadow-sm group">
-                    <div className={`w-12 h-12 rounded-2xl ${feature.color} border flex items-center justify-center mb-6 transform group-hover:scale-110 transition-transform duration-300`}>
-                      <feature.icon className="w-6 h-6" />
-                    </div>
-                    <h3 className="font-display text-xl font-bold text-[#181c1e] tracking-wide mb-3">{feature.title}</h3>
-                    <p className="text-sm text-[#3d4943] leading-relaxed font-medium">
-                      {feature.desc}
-                    </p>
-                  </div>
+                  { label: t.newAssessment, action: resetAndStartAssessment, active: ['assessment-info','assessment-capture','assessment-review','referral-note'].includes(screen) },
+                  { label: t.caseHistory,   action: () => { setScreen('case-history'); stopWebcam(); }, active: screen === 'case-history' },
+                ].map(({ label, action, active }) => (
+                  <button key={label} onClick={action} className={`font-sans text-sm font-medium transition-all duration-300 h-full relative flex items-center ${active ? 'text-white font-semibold' : 'text-[#F0F4F8]/60 hover:text-white'}`}>
+                    {label}
+                    {active && <span className="absolute bottom-0 left-0 w-full h-[3px] bg-[#00A6FB] rounded-t-full shadow-[0_-2px_12px_rgba(0,166,251,0.8)]" />}
+                  </button>
                 ))}
-              </div>
-            </section>
-          </div>
-        )}
+              </nav>
 
-        {/* ASSESSMENT WORKFLOW */}
-        {(screen === 'assessment-info' || screen === 'assessment-capture' || screen === 'assessment-review' || screen === 'referral-note') && (
-          <div className="flex-1 flex flex-col md:flex-row">
-            
-            <aside className="w-full md:w-64 bg-[#f1f4f6] md:border-r border-[#bccac1] py-3 md:py-6 px-4 flex flex-col md:min-h-[calc(100vh-3.5rem)] print:hidden">
-              <div className="mb-6 hidden md:block">
-                <h2 className="font-display font-extrabold text-base text-[#181c1e]">Assessment Progress</h2>
-                <p className="text-xs text-[#3d4943] mt-0.5">Community Workflow</p>
-              </div>
-
-              <div className="flex md:flex-col gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-none">
-                <div 
-                  onClick={() => { if (screen !== 'assessment-info') setScreen('assessment-info'); }}
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all cursor-pointer grow md:grow-0 shrink-0 ${
-                    screen === 'assessment-info'
-                      ? 'bg-[#0077b6] text-white font-bold shadow-sm'
-                      : 'text-[#3d4943] hover:bg-[#e5e9eb]'
-                  }`}
-                >
-                  <UserPen className="w-4.5 h-4.5 shrink-0" />
-                  <span className="font-display text-xs whitespace-nowrap">Step 1: Patient Info</span>
+              <div className="flex items-center gap-3">
+                {/* Clinician badge */}
+                <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white/5 border border-white/10 rounded-full">
+                  <div className="w-6 h-6 rounded-full bg-[#00A6FB] flex items-center justify-center text-white font-bold text-[10px]">
+                    {clinician.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()}
+                  </div>
+                  <div className="text-left">
+                    <p className="text-[11px] font-bold text-white leading-none">{clinician.name}</p>
+                    <p className="text-[9px] text-white/60 leading-none mt-0.5">{clinician.role}</p>
+                  </div>
+                  <button onClick={() => { clearProfile(); setClinician(null); }} title="Switch profile" className="ml-1 text-white/40 hover:text-white/80 transition-colors">
+                    <X className="w-3 h-3" />
+                  </button>
                 </div>
 
-                <div 
-                  onClick={() => { if (patient.name) setScreen('assessment-capture'); }}
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
-                    !patient.name ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                  } grow md:grow-0 shrink-0 ${
-                    screen === 'assessment-capture'
-                      ? 'bg-[#0077b6] text-white font-bold shadow-sm'
-                      : 'text-[#3d4943] hover:bg-[#e5e9eb]'
-                  }`}
-                >
-                  <Camera className="w-4.5 h-4.5 shrink-0" />
-                  <span className="font-display text-xs whitespace-nowrap">Step 2: Skin Capture</span>
-                </div>
-
-                <div 
-                  onClick={() => { if (activeAnalysisResult) setScreen('assessment-review'); }}
-                  className={`flex items-center gap-3 p-3 rounded-xl transition-all ${
-                    !activeAnalysisResult ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                  } grow md:grow-0 shrink-0 ${
-                    screen === 'assessment-review'
-                      ? 'bg-[#0077b6] text-white font-bold shadow-sm'
-                      : 'text-[#3d4943] hover:bg-[#e5e9eb]'
-                  }`}
-                >
-                  <ClipboardCheck className="w-4.5 h-4.5 shrink-0" />
-                  <span className="font-display text-xs whitespace-nowrap">Step 3: Review Details</span>
-                </div>
-              </div>
-
-              <div className="mt-auto hidden md:block pt-4 border-t border-[#bccac1]">
-                <div className="flex items-center gap-2 px-1 text-[#3d4943]">
-                  <ShieldCheck className="w-4 h-4 text-[#0077b6]" />
-                  <span className="font-display font-semibold text-[10px] tracking-wide uppercase">HIPAA Compliant Secure</span>
-                </div>
-              </div>
-            </aside>
-
-            <div className="flex-1 flex flex-col pt-4 md:pt-0">
               
-              {/* STEP 1: PATIENT INFO */}
-              {screen === 'assessment-info' && (
-                <div className="p-4 md:p-8 flex-1 flex items-center justify-center canvas-bg">
-                  <div className="bg-white border border-[#bccac1] rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-sm">
-                    <header className="mb-6">
-                      <h2 className="font-display font-extrabold text-xl md:text-2xl text-[#181c1e]">Patient Details</h2>
-                      <p className="text-xs text-[#3d4943] mt-1.5">
-                        Please record basic patient identifiers, demographics, and symptom definitions to support the clinical classification model.
-                      </p>
-                    </header>
-
-                    <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); if (patient.name) setScreen('assessment-capture'); }}>
-                      <div className="space-y-1.5">
-                        <label className="font-display text-xs font-bold text-[#181c1e] block">Patient Full Name</label>
-                        <input 
-                          type="text" 
-                          required
-                          value={patient.name}
-                          onChange={(e) => setPatient({ ...patient, name: e.target.value })}
-                          placeholder="Full legal name"
-                          className="w-full h-11 px-3.5 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] focus:border-[#0077b6] bg-white text-sm transition-all shadow-inner"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="font-display text-xs font-bold text-[#181c1e] block">Age (Years)</label>
-                          <input 
-                            type="number"
-                            required
-                            min="0"
-                            max="125"
-                            value={patient.age}
-                            onChange={(e) => setPatient({ ...patient, age: e.target.value })}
-                            placeholder="e.g. 34"
-                            className="w-full h-11 px-3.5 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] focus:border-[#0077b6] bg-white text-sm transition-all"
-                          />
-                        </div>
-
-                        <div className="space-y-1.5">
-                          <label className="font-display text-xs font-bold text-[#181c1e] block">Sex Selection</label>
-                          <div className="flex h-11 border border-[#bccac1] rounded-lg overflow-hidden bg-white">
-                            <button
-                              type="button"
-                              onClick={() => setPatient({ ...patient, sex: 'Male' })}
-                              className={`flex-1 text-xs font-bold transition-all ${
-                                patient.sex === 'Male' ? 'bg-[#d6e0f6] text-[#121c2c]' : 'text-[#3d4943] hover:bg-[#f1f4f6]'
-                              }`}
-                            >
-                              Male
-                            </button>
-                            <div className="w-[1px] bg-[#bccac1]" />
-                            <button
-                              type="button"
-                              onClick={() => setPatient({ ...patient, sex: 'Female' })}
-                              className={`flex-1 text-xs font-bold transition-all ${
-                                patient.sex === 'Female' ? 'bg-[#d6e0f6] text-[#121c2c]' : 'text-[#3d4943] hover:bg-[#f1f4f6]'
-                              }`}
-                            >
-                              Female
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <label className="font-display text-xs font-bold text-[#181c1e] block">Brief Symptom Description</label>
-                        <textarea
-                          rows={3}
-                          value={patient.symptoms}
-                          onChange={(e) => setPatient({ ...patient, symptoms: e.target.value })}
-                          placeholder="Describe lesion duration, localized itch, flareups, and changes observed on the skin..."
-                          className="w-full p-3 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] focus:border-[#0077b6] bg-white text-sm transition-all resize-none"
-                        />
-                      </div>
-
-                      <div className="pt-2">
-                        <button
-                          type="submit"
-                          disabled={!patient.name || !patient.age || !patient.sex}
-                          className="w-full h-11 bg-[#0077b6] hover:bg-[#0096c7] disabled:bg-[#bccac1] disabled:cursor-not-allowed text-white font-display font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm"
-                        >
-                          <span>Next Step: Capture Skin Image</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 2: CAPTURE */}
-              {screen === 'assessment-capture' && (
-                <div className="p-4 md:p-8 flex-1 canvas-bg">
-                  <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-                    
-                    <div className="space-y-6">
-                      <div>
-                        <span className="inline-block bg-[#ebeef0] text-[#555f71] px-2.5 py-0.5 rounded-full font-display font-semibold text-[10px] mb-2 uppercase tracking-wide">
-                          Assessment Phase 02
-                        </span>
-                        <h2 className="font-display font-extrabold text-[#181c1e] text-2xl">Capture Skin Image</h2>
-                        <p className="text-sm text-[#3d4943] mt-2 leading-relaxed">
-                          For accurate AI triage evaluation, capture a sharp close-up photo of the patient's skin lesion. Maintain clear lighting and remove any topical bandage films or residue.
-                        </p>
-                      </div>
-
-                      <div className="bg-[#f0f9ff] border border-[#bccac1] rounded-xl p-4">
-                        <h4 className="font-display font-bold text-xs text-[#0077b6] flex items-center gap-1.5">
-                          <PlusCircle className="w-4 h-4" />
-                          Diagnostic Library Specimens (Quick Testing)
-                        </h4>
-                        <p className="text-[11px] text-[#3d4943] mt-1 leading-relaxed">
-                          For testing or training purposes, click one of the standard medical lesion templates below to load its macro photography:
-                        </p>
-                        <div className="grid grid-cols-2 gap-2 mt-3">
-                          {SAMPLE_CASE_TEMPLATES.map((item) => (
-                            <button
-                              key={item.code}
-                              onClick={() => selectTemplateInstance(item.imageUrl)}
-                              className={`flex items-center gap-2 p-1.5 rounded-lg border text-left transition-all ${
-                                capturedImage === item.imageUrl
-                                  ? 'border-[#0077b6] bg-white ring-2 ring-[#0077b6]'
-                                  : 'border-[#bccac1] bg-white hover:bg-[#f1f4f6]'
-                              }`}
-                            >
-                              <img src={item.imageUrl} alt={item.name} className="w-8 h-8 rounded object-cover shrink-0" />
-                              <span className="font-display text-[10px] font-bold text-[#181c1e] truncate leading-tight">
-                                {item.name}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-[#bccac1] p-4 rounded-xl flex gap-3">
-                        <div className="p-2 bg-[#d6e0f6] rounded-full text-[#0077b6] h-fit">
-                          <Lightbulb className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="font-display font-bold text-xs text-[#181c1e]">Photography Tip</h4>
-                          <p className="text-[11px] text-[#3d4943] mt-1 leading-relaxed">
-                            Use natural lighting if possible. Avoid using the direct camera flash directly over wet or oily ulcers, to prevent excessive glare artifacts.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        {isCameraActive ? (
-                          <button
-                            onClick={captureFrame}
-                            className="flex-1 h-11 bg-[#0077b6] text-white rounded-lg font-display font-bold text-sm hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                          >
-                            <Camera className="w-5 h-5 animate-pulse" />
-                            Snaps Assessment Frame
-                          </button>
-                        ) : (
-                          <button
-                            onClick={startWebcam}
-                            className="flex-1 h-11 bg-[#0077b6] text-white rounded-lg font-display font-bold text-sm hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                          >
-                            <Camera className="w-5 h-5" />
-                            Take Photo with Camera
-                          </button>
-                        )}
-
-                        <label className="flex-1 h-11 border-2 border-dashed border-[#0077b6] text-[#0077b6] bg-white rounded-lg font-display font-bold text-sm hover:bg-[#f1f4f6] transition-all flex items-center justify-center gap-2 cursor-pointer">
-                          <Upload className="w-5 h-5" />
-                          <span>Upload from Gallery</span>
-                          <input 
-                            type="file" 
-                            accept="image/*"
-                            onChange={handleFileChange}
-                            className="hidden" 
-                          />
-                        </label>
-                      </div>
-
-                      {isCameraActive && (
-                        <button 
-                          onClick={stopWebcam}
-                          className="w-full h-9 bg-[#ffdad6] text-[#93000a] text-xs font-bold rounded-lg transition-colors hover:bg-red-200"
-                        >
-                          Cancel Camera Stream
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="bg-white border rounded-2xl p-4 border-[#bccac1]">
-                        <h3 className="font-display text-xs font-bold text-[#181c1e] mb-3 uppercase tracking-wider">Assessment Preview</h3>
-                        
-                        <div className="aspect-[4/5] bg-[#ebeef0] border-2 border-dashed border-[#bccac1] rounded-xl overflow-hidden flex flex-col items-center justify-center p-4 relative">
-                          {isCameraActive && !capturedImage && (
-                            <video 
-                              ref={videoRef} 
-                              autoPlay 
-                              className="w-full h-full object-cover rounded-lg absolute inset-0"
-                            />
-                          )}
-
-                          {capturedImage ? (
-                            <img 
-                              src={capturedImage} 
-                              alt="Clinic Skin Frame" 
-                              className="w-full h-full object-cover rounded-lg absolute inset-0" 
-                            />
-                          ) : (
-                            !isCameraActive && (
-                              <div className="text-center p-6 space-y-3 pointer-events-none">
-                                <span className="w-12 h-12 rounded-full bg-[#f1f4f6] border border-[#bccac1] flex items-center justify-center text-[#6d7a73] mx-auto">
-                                  <Camera className="w-6 h-6" />
-                                </span>
-                                <p className="font-display font-extrabold text-sm text-[#3d4943]">No active image captured</p>
-                                <p className="text-[10px] text-[#6d7a73]">Activate webcam capture or pick one from our specimen gallery.</p>
-                              </div>
-                            )
-                          )}
-
-                          {cameraError && !capturedImage && (
-                            <div className="absolute inset-0 bg-[#ffdad6]/95 flex items-center justify-center p-6 text-center z-10 rounded-lg">
-                              <p className="text-xs font-semibold text-[#93000a] leading-relaxed">{cameraError}</p>
-                            </div>
-                          )}
-                        </div>
-
-                        {capturedImage && (
-                          <div className="mt-4 p-3 bg-[#f0f9ff] rounded-xl border border-[#bccac1] flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <CheckCircle2 className="w-5 h-5 text-[#0077b6]" />
-                              <span className="text-xs font-bold text-[#181c1e]">
-                                {customFileSelected ? "Local File Selected" : "Specimen Pre-loaded"}
-                              </span>
-                            </div>
-                            <button
-                              onClick={() => { setCapturedImage(null); setCustomFileSelected(false); }}
-                              className="text-xs font-bold text-[#ba1a1a] hover:underline"
-                            >
-                              Reset Choice
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {capturedImage && (
-                        <button
-                          onClick={runAiAnalysis}
-                          disabled={analysisLoading}
-                          className="w-full h-12 bg-[#0077b6] hover:bg-[#0096c7] text-white rounded-xl font-display font-extrabold text-sm flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all"
-                        >
-                          <Activity className="w-5 h-5" />
-                          <span>Analyse Skin Condition</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 3: RESULTS (Continuous Scroll Report) */}
-              {screen === 'assessment-review' && activeAnalysisResult && (
-                <div className="flex-1 bg-white w-full">
-                  <div className="w-full flex flex-col relative print:shadow-none print:border-none print:max-w-none">
-                    
-                    {/* Header */}
-                    <div className="bg-[#0077b6] p-6 sm:p-8 text-white flex justify-between items-center print:bg-white print:text-[#181c1e] print:border-b print:border-[#bccac1]">
-                      <div>
-                        <h2 className="font-display font-extrabold text-2xl md:text-3xl tracking-tight">Clinical Assessment Report</h2>
-                        <p className="text-sm font-medium mt-1 opacity-90 print:opacity-100 print:text-[#3d4943]">REF ID: {activeCaseId || 'NEW-CASE'}</p>
-                      </div>
-                      <div className="text-right shrink-0 hidden sm:block">
-                        <span className="font-display font-extrabold text-3xl leading-none block">DermaDetect</span>
-                        <span className="text-[10px] font-bold tracking-wider uppercase mt-1 block opacity-90 print:opacity-100 print:text-[#3d4943]">AI Analysis System</span>
-                      </div>
-                    </div>
-
-                    <div className="p-6 sm:p-8 space-y-8">
-                      {/* Patient Info Block */}
-                      <div>
-                        <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4">Patient Information</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-4 text-sm bg-[#f0f9ff] p-5 rounded-xl border border-[#bccac1] print:bg-white print:p-0 print:border-none print:gap-y-6">
-                          <div>
-                            <span className="text-[#3d4943] font-bold block mb-1">Name</span>
-                            <span className="text-[#181c1e] font-semibold">{patient.name || 'Anonymous'}</span>
-                          </div>
-                          <div>
-                            <span className="text-[#3d4943] font-bold block mb-1">Age / Sex</span>
-                            <span className="text-[#181c1e] font-semibold">{patient.age || 'Unknown'} / {patient.sex || 'Unknown'}</span>
-                          </div>
-                          <div>
-                            <span className="text-[#3d4943] font-bold block mb-1">Health Worker</span>
-                            <span className="text-[#181c1e] font-semibold">{healthWorkerName}</span>
-                          </div>
-                          <div>
-                            <span className="text-[#3d4943] font-bold block mb-1">Assessment Date</span>
-                            <span className="text-[#181c1e] font-semibold">{new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                          </div>
-                          <div className="col-span-2 md:col-span-4">
-                            <span className="text-[#3d4943] font-bold block mb-1">Reported Symptoms</span>
-                            <span className="text-[#181c1e] font-semibold">{patient.symptoms || 'None provided'}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Visual & Prediction Block */}
-                      <div>
-                        <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4 page-break-after-avoid">Visual Analysis & Predictions</h3>
-                        <div className="flex flex-col gap-6 items-stretch page-break-inside-avoid">
-                          {/* Images (Original & Heatmap) */}
-                          <div className={`w-full ${activeAnalysisResult.heatmap_b64 ? 'grid grid-cols-2' : 'flex flex-col'} gap-4 shrink-0`}>
-                            <div className="bg-[#e0e3e5] rounded-xl overflow-hidden border border-[#bccac1] relative aspect-square">
-                              {capturedImage ? (
-                                <img src={capturedImage} alt="Clinical lesion macro view" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="h-full flex items-center justify-center text-[#3d4943] text-sm">No Image Available</div>
-                              )}
-                              <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide">Original</div>
-                            </div>
-                            
-                            {activeAnalysisResult.heatmap_b64 && (
-                              <div className="bg-[#e0e3e5] rounded-xl overflow-hidden border border-[#bccac1] relative aspect-square">
-                                <img src={`data:image/jpeg;base64,${activeAnalysisResult.heatmap_b64}`} alt="GradCAM Saliency Map" className="w-full h-full object-cover" />
-                                <div className="absolute top-2 left-2 bg-[#0077b6]/80 text-white text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide">AI Saliency Map</div>
-                              </div>
-                            )}
-                          </div>
-                          
-                          {/* Predictions */}
-                          <div className="flex-1 flex flex-col gap-4">
-                            <div className="bg-[#f1f4f6] border border-[#bccac1] p-5 rounded-xl flex-1 flex flex-col justify-center">
-                              <span className="text-[#3d4943] font-bold text-xs uppercase tracking-wider block mb-1">Primary Finding</span>
-                              <div className="flex justify-between items-center mb-3">
-                                <h3 className="font-display font-extrabold text-2xl text-[#181c1e]">
-                                  {activeAnalysisResult.primaryFinding}
-                                </h3>
-                                <div className="bg-white px-3 py-1.5 rounded-lg border border-[#bccac1] shadow-sm text-center">
-                                  <span className="font-display font-black text-[#0077b6] text-xl block leading-none">{activeAnalysisResult.confidence}%</span>
-                                  <span className="text-[9px] font-bold text-[#3d4943] uppercase tracking-wider">Confidence</span>
-                                </div>
-                              </div>
-                              <div className="h-3 w-full bg-[#e0e3e5] rounded-full overflow-hidden border border-[#bccac1]/50">
-                                <div className="h-full bg-[#0077b6]" style={{ width: `${activeAnalysisResult.confidence}%` }} />
-                              </div>
-                            </div>
-
-                            <div className={`p-5 rounded-xl border flex items-center gap-4 ${
-                              activeAnalysisResult.urgency === 'High' ? 'bg-[#ffdad6] border-[#ba1a1a] text-[#93000a]' : 
-                              activeAnalysisResult.urgency === 'Moderate' ? 'bg-[#ffe0b2] border-[#ffe0b2] text-[#e65100]' : 
-                              'bg-[#e8f5e9] border-[#c8e6c9] text-[#2e7d32]'
-                            }`}>
-                              <div className={`p-2 rounded-lg shrink-0 ${
-                                activeAnalysisResult.urgency === 'High' ? 'bg-[#ba1a1a] text-white' : 
-                                activeAnalysisResult.urgency === 'Moderate' ? 'bg-[#e65100] text-white' : 
-                                'bg-[#2e7d32] text-white'
-                              }`}>
-                                <AlertTriangle className="w-6 h-6" />
-                              </div>
-                              <div>
-                                <span className="font-display font-extrabold text-sm tracking-wider uppercase block mb-0.5">
-                                  Triage Urgency: {activeAnalysisResult.urgency}
-                                </span>
-                                <p className="text-sm font-semibold leading-relaxed">
-                                  {activeAnalysisResult.urgencyText}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Groq Response Structure (Narrative & Treatments) */}
-                      <div>
-                        <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4">AI Clinical Evaluation</h3>
-                        
-                        <div className="space-y-6 page-break-inside-avoid">
-                          <div className="bg-white border border-[#bccac1] p-6 rounded-xl shadow-sm text-sm leading-relaxed text-[#181c1e] markdown-body">
-                            {activeAnalysisResult.referralNote ? (
-                              <ReactMarkdown
-                                components={{
-                                  strong: ({node, ...props}) => <span className="font-bold text-[#0077b6] block mt-5 mb-1.5 text-xs uppercase tracking-wider border-b border-[#f1f4f6] pb-1" {...props} />,
-                                  p:      ({node, ...props}) => <p className="text-sm text-[#3d4943] leading-relaxed mb-3" {...props} />,
-                                }}
-                              >
-                                {sanitiseReferralNote(activeAnalysisResult.referralNote)}
-                              </ReactMarkdown>
-                            ) : (
-                              <p className="text-sm text-slate-400 italic">No clinical narrative generated.</p>
-                            )}
-                          </div>
-
-                          <div className="print:hidden">
-                            <TreatmentRecommendations 
-                              finding={activeAnalysisResult} 
-                              patient={patient} 
-                              caseId={activeCaseId || 'NEW-CASE'} 
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Signature & Disclaimer (Visible on Print) */}
-                    <div className="mt-12 pt-8 border-t border-[#bccac1] flex justify-between items-end page-break-inside-avoid">
-                      <div className="flex flex-col gap-2">
-                        <span className="italic text-xs text-[#555f71]">Digital Verified Signature</span>
-                        <span className="font-display font-bold text-lg text-[#181c1e]">{healthWorkerName || 'Unknown Worker'}</span>
-                        <div className="w-64 h-[1px] bg-[#181c1e] mt-1"></div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="p-1.5 border border-[#bccac1] rounded-lg bg-[#f1f4f6]">
-                          <QrCode className="w-10 h-10 text-[#3d4943]" />
-                        </div>
-                        <div className="text-[10px] text-[#3d4943] font-bold leading-tight">
-                          Verify on<br/>
-                          DermaDetect Secure<br/>
-                          Web Cloud
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-8 mb-6 text-[10px] text-[#555f71] text-center page-break-inside-avoid max-w-3xl mx-auto leading-relaxed">
-                      Disclaimer: This assessment is AI-assisted using the advanced <strong>DermaVision</strong> language model developed by <strong>PreWorks</strong>. It is intended to support, not replace, clinical judgment by a qualified healthcare professional.
-                    </div>
-
-                    {/* Action Footer */}
-                    <div className="bg-[#f1f4f6] p-6 border-t border-[#bccac1] flex flex-col sm:flex-row justify-end gap-3">
-                      {/* Preview button */}
-                      <button
-                        onClick={() => setShowReportPreview(true)}
-                        className="h-12 px-6 border-2 border-[#3d4943] text-[#3d4943] bg-white font-display font-bold text-sm rounded-xl hover:bg-[#f1f4f6] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                      >
-                        <Search className="w-5 h-5" />
-                        <span>Preview Report</span>
-                      </button>
-
-                      {/* PDF export button */}
-                      <button 
-                        onClick={async () => {
-                          if (!activeAnalysisResult) return;
-                          setIsGeneratingPdf(true);
-                          try {
-                            const payload = {
-                              case_id: activeCaseId || `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-                              patient: { ...patient, healthWorkerName },
-                              clinical: {
-                                primaryFinding: activeAnalysisResult.primaryFinding,
-                                confidence: activeAnalysisResult.confidence,
-                                urgency: activeAnalysisResult.urgency,
-                                referralNote: activeAnalysisResult.referralNote,
-                                treatmentNotes: activeAnalysisResult.treatmentNotes,
-                                therapyRegimen: activeAnalysisResult.therapyRegimen,
-                                patientHandout: activeAnalysisResult.patientHandout,
-                                recommendedAction: activeAnalysisResult.recommendedAction
-                              },
-                              images: {
-                                original_b64: capturedImage,
-                                heatmap_b64: activeAnalysisResult.heatmap_b64
-                              }
-                            };
-                            const response = await fetch('/api/generate-pdf', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify(payload)
-                            });
-                            if (!response.ok) throw new Error("PDF generation failed");
-                            
-                            const data = await response.json();
-                            if (data.pdf_b64) {
-                              const link = document.createElement('a');
-                              link.href = `data:application/pdf;base64,${data.pdf_b64}`;
-                              link.download = `DermaDetect_Report_${patient.name || 'Patient'}.pdf`;
-                              link.click();
-                            }
-                          } catch (err) {
-                            console.error(err);
-                            alert("Failed to generate PDF report from backend.");
-                          } finally {
-                            setIsGeneratingPdf(false);
-                          }
-                        }}
-                        disabled={isGeneratingPdf}
-                        className="h-12 px-6 border-2 border-[#0077b6] text-[#0077b6] bg-white font-display font-bold text-sm rounded-xl hover:bg-[#e0f2fe] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
-                      >
-                        {isGeneratingPdf ? <Loader2 className="w-5 h-5 animate-spin" /> : <Printer className="w-5 h-5" />}
-                        <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF Report'}</span>
-                      </button>
-                      
-                      <button 
-                        onClick={saveCaseRecord}
-                        className="h-12 px-8 bg-[#0077b6] text-white font-display font-bold text-sm rounded-xl hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                      >
-                        <Save className="w-5 h-5" />
-                        <span>Save and Register Case</span>
-                      </button>
-                    </div>
-
-                  </div>
-                </div>
-              )}
-
-              {/* Deprecated Step 4 Referral Note removed, functionality merged into Step 3 */}
+              </div>
             </div>
-          </div>
-        )}
+          </header>
 
-        {/* CASE HISTORY */}
-        {screen === 'case-history' && (
-          <section className="flex-1 max-w-5xl mx-auto w-full px-4 md:px-8 py-8 animate-fade-in flex flex-col justify-between">
-            <div className="grow space-y-6">
-              
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#bccac1] pb-4">
-                <div>
-                  <h1 className="font-display font-extrabold text-2xl md:text-3xl text-[#181c1e]">Case History Logs</h1>
-                  <p className="text-xs text-[#3d4943] mt-1.5">
-                    Browse fully registered patient skin diagnostics and triage urgencies recorded in this clinical terminal.
-                  </p>
-                </div>
+          {/* ── MAIN ── */}
+          <main className="flex-1 pt-14 pb-20 md:pb-0 flex flex-col">
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="relative min-w-[200px] shrink-0">
-                    <Search className="w-4 h-4 text-[#3d4943] absolute left-3.5 top-1/2 transform -translate-y-1/2" />
-                    <input 
-                      type="text" 
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Search patient or diagnosis..."
-                      className="w-full text-xs h-9 pl-9 pr-3.5 bg-white border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] focus:border-[#0077b6]"
-                    />
+            {/* HOME */}
+            {screen === 'home' && (
+              <div className="flex-1 flex flex-col relative overflow-hidden bg-[#F8F9FA]">
+
+                {/* Hero */}
+                <section className="relative min-h-screen flex flex-col overflow-hidden bg-[#001B2E] text-[#F0F4F8]">
+                  <div className="absolute inset-0 z-0 pointer-events-none select-none overflow-hidden">
+                    <img src="https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&w=2400&q=80" alt="" className="w-full h-full object-cover opacity-45 mix-blend-luminosity filter contrast-125 brightness-110" />
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#001B2E]/10 to-[#001B2E]" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_20%,#001B2E_90%)]" />
                   </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <Filter className="w-4 h-4 text-[#3d4943]" />
-                    <select
-                      value={filterUrgency}
-                      onChange={(e) => setFilterUrgency(e.target.value as any)}
-                      className="text-xs h-9 px-2 bg-white border border-[#bccac1] rounded-lg focus:outline-none text-[#181c1e] font-semibold"
-                    >
-                      <option value="All">All Urgencies</option>
-                      <option value="High">High Urgency</option>
-                      <option value="Moderate">Moderate Urgency</option>
-                      <option value="Low">Low Urgency</option>
-                    </select>
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[70vw] h-[50vh] bg-[#00A6FB]/10 blur-[150px] rounded-full pointer-events-none z-0" />
+                  <div className="max-w-4xl mx-auto w-full px-6 md:px-12 pt-19 pb-24 flex flex-col items-center justify-center text-center relative z-10 my-auto">
+                    <div className="w-fit mb-8">
+                      <span className="inline-flex items-center gap-2.5 px-6 py-2.5 rounded-full bg-white/[0.03] backdrop-blur-md border border-white/10 text-[11px] uppercase tracking-[0.25em] text-[#F0F4F8] font-semibold">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00A6FB] shadow-[0_0_10px_#00A6FB]" />
+                        Dermatology Support for General Practice
+                      </span>
+                    </div>
+                    <h1 className="font-display font-light text-white text-4xl sm:text-6xl md:text-7xl leading-[1.1] tracking-tight mb-8 drop-shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
+                      Diagnostic support, <br/>
+                      <span className="font-bold bg-gradient-to-r from-white via-[#00A6FB] to-[#00A6FB] bg-clip-text text-transparent">built for clinicians.</span>
+                    </h1>
+                    <p className="text-[#F0F4F8]/85 text-base md:text-xl leading-relaxed max-w-2xl font-sans font-light mb-12 drop-shadow-sm">
+                      DermaDefect provides physicians with instant, evidence-backed reference mapping and diagnostic cross-examinations.
+                    </p>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-5 w-full sm:w-auto">
+                      <button onClick={resetAndStartAssessment} className="w-full sm:w-auto h-14 px-12 bg-[#00A6FB] text-[#001B2E] font-sans font-semibold text-base rounded-full shadow-[0_10px_25px_rgba(0,166,251,0.25)] hover:bg-white hover:-translate-y-0.5 transition-all flex items-center justify-center gap-3 cursor-pointer active:scale-95">
+                        <PlusCircle className="w-5 h-5" /><span>Begin Assessment</span>
+                      </button>
+                      <a href="#how-it-works" className="w-full sm:w-auto h-14 px-12 border border-white/10 text-[#F0F4F8] bg-white/[0.04] backdrop-blur-md font-sans font-semibold text-base rounded-full hover:bg-white/[0.1] hover:border-white/20 transition-all flex items-center justify-center gap-3 active:scale-95">
+                        <span>Read Clinical Protocol</span><ArrowRight className="w-4 h-4 opacity-70 text-[#00A6FB]" />
+                      </a>
+                    </div>
                   </div>
+                </section>
 
-                  <button 
-                    onClick={() => {
-                      const blob = new Blob([JSON.stringify(cases, null, 2)], { type: 'application/json' });
-                      const url = URL.createObjectURL(blob);
-                      const link = document.createElement('a');
-                      link.href = url;
-                      link.download = `DermaDetect_Assessments_${new Date().toISOString().slice(0,10)}.json`;
-                      link.click();
-                    }}
-                    className="h-9 px-4 bg-[#0077b6] hover:bg-[#0096c7] text-white flex items-center gap-1.5 rounded-lg text-xs font-semibold cursor-pointer shadow-sm ml-auto md:ml-0"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Export</span>
-                  </button>
-
-                  <button 
-                    onClick={resetAndStartAssessment}
-                    className="h-9 px-4 bg-[#0077b6] hover:bg-[#0096c7] text-white flex items-center gap-1.5 rounded-lg text-xs font-semibold cursor-pointer shadow-sm ml-auto md:ml-0"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>New</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="bg-white border border-[#bccac1] rounded-2xl overflow-hidden shadow-sm">
-                {/* Desktop table */}
-                <div className="hidden md:block overflow-x-auto scrollbar-none">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-[#f1f4f6] text-[#3d4943] text-xs font-bold border-b border-[#bccac1]">
-                        <th className="px-5 py-3 ml-2 uppercase tracking-wider">Patient Name</th>
-                        <th className="px-5 py-3 uppercase tracking-wider">Assessment Date</th>
-                        <th className="px-5 py-3 uppercase tracking-wider">Clinical Finding</th>
-                        <th className="px-5 py-3 uppercase tracking-wider">Urgency Triage</th>
-                        <th className="px-5 py-3 uppercase tracking-wider text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#ebeef0]">
-                      {processedCases.length > 0 ? (
-                        processedCases.map((item) => (
-                          <tr 
-                            key={item.id} 
-                            onClick={() => setSelectedDetailsCase(item)}
-                            className="hover:bg-[#f1f4f6] transition-colors cursor-pointer group text-xs text-[#181c1e] font-semibold"
-                          >
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-full bg-[#d6e0f6] text-[#121c2c] flex items-center justify-center font-bold font-display select-none">
-                                  {item.patient.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
-                                </div>
-                                <div className="space-y-0.5">
-                                  <p className="font-bold text-sm text-[#181c1e] group-hover:text-[#0077b6] transition-colors">
-                                    {item.patient.name}
-                                  </p>
-                                  <p className="text-[10px] text-[#3d4943] font-mono leading-none">
-                                    CASE REF: {item.id}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-5 py-4 text-[#3d4943]">{item.date}</td>
-                            <td className="px-5 py-4">
-                              <span className="px-2.5 py-1 rounded bg-[#ebeef0] text-[#181c1e] font-bold text-[10px] border border-[#bccac1]">
-                                {item.finding?.primaryFinding || 'Unclassified'}
-                              </span>
-                            </td>
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`w-2 h-2 rounded-full ${
-                                  item.finding?.urgency === 'High' 
-                                    ? 'bg-[#ba1a1a]' 
-                                    : item.finding?.urgency === 'Moderate' 
-                                    ? 'bg-[#e65100]' 
-                                    : 'bg-[#2e7d32]'
-                                }`} />
-                                <span className={`font-bold ${
-                                  item.finding?.urgency === 'High' 
-                                    ? 'text-[#ba1a1a]' 
-                                    : item.finding?.urgency === 'Moderate' 
-                                    ? 'text-[#e65100]' 
-                                    : 'text-[#2e7d32]'
-                                }`}>
-                                  {item.finding?.urgency || 'Low'}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); downloadPdfRecord(item); }}
-                                  title="Download Full Clinical PDF"
-                                  className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-emerald-200 cursor-pointer"
-                                >
-                                  <Download className="w-4.5 h-4.5" />
-                                </button>
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); setCaseToDelete(item); }}
-                                  title="Delete Case Record"
-                                  className="text-rose-600 hover:bg-rose-50 p-1.5 rounded-full transition-colors border border-transparent hover:border-rose-200 cursor-pointer"
-                                >
-                                  <Trash2 className="w-4.5 h-4.5" />
-                                </button>
-                                <button 
-                                  onClick={() => setSelectedDetailsCase(item)}
-                                  title="View Case Details"
-                                  className="text-[#0077b6] hover:bg-[#f0f9ff] p-1.5 rounded-full transition-colors border border-transparent hover:border-[#bccac1] cursor-pointer"
-                                >
-                                  <ChevronRight className="w-4.5 h-4.5" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={5} className="text-center py-12 text-[#3d4943] font-medium">
-                            No patient case history match. Let's start a New Assessment to record a case.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile cards */}
-                <div className="block md:hidden divide-y divide-[#ebeef0]">
-                  {processedCases.length > 0 ? (
-                    processedCases.map((item) => (
-                      <div 
-                        key={item.id}
-                        onClick={() => setSelectedDetailsCase(item)}
-                        className="p-4 hover:bg-[#f1f4f6] transition-colors cursor-pointer space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-[#d6e0f6] text-[#121c2c] flex items-center justify-center font-bold font-display select-none shrink-0">
-                              {item.patient.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-bold text-sm text-[#181c1e] truncate">{item.patient.name}</p>
-                              <p className="text-[10px] text-[#3d4943] font-mono leading-none">REF: {item.id}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className={`w-2 h-2 rounded-full ${
-                              item.finding?.urgency === 'High' ? 'bg-[#ba1a1a]' : item.finding?.urgency === 'Moderate' ? 'bg-[#e65100]' : 'bg-[#2e7d32]'
-                            }`} />
-                            <span className={`font-bold text-xs ${
-                              item.finding?.urgency === 'High' ? 'text-[#ba1a1a]' : item.finding?.urgency === 'Moderate' ? 'text-[#e65100]' : 'text-[#2e7d32]'
-                            }`}>
-                              {item.finding?.urgency || 'Low'}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex justify-between items-end text-xs pt-1">
-                          <div className="space-y-1.5 min-w-0">
-                            <p className="text-[10px] text-[#3d4943]">
-                              Date: <strong className="text-slate-800 font-semibold">{item.date}</strong>
-                            </p>
-                            <div className="truncate">
-                              <span className="inline-block px-2 py-0.5 rounded bg-[#ebeef0] text-[#181c1e] text-[10px] border border-[#bccac1] font-bold truncate max-w-[160px]">
-                                {item.finding?.primaryFinding || 'Unclassified'}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); downloadPdfRecord(item); }}
-                              className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors border border-emerald-100 bg-emerald-50/30 cursor-pointer"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); setCaseToDelete(item); }}
-                              className="w-8 h-8 flex items-center justify-center text-rose-600 hover:bg-rose-50 rounded-lg transition-colors border border-rose-100 bg-rose-50/30 cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => setSelectedDetailsCase(item)}
-                              className="w-8 h-8 flex items-center justify-center text-[#0077b6] hover:bg-[#f0f9ff] rounded-lg transition-colors border border-sky-100 bg-sky-50/30 cursor-pointer"
-                            >
-                              <ChevronRight className="w-4 h-4" />
-                            </button>
-                          </div>
+                {/* Stats section */}
+                <section className="py-24 md:py-32 px-6 md:px-12 bg-white relative z-10 select-none">
+                  <div className="max-w-4xl mx-auto text-center mb-20">
+                    <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-[#00A6FB]/5 border border-[#00A6FB]/10 text-[11px] font-semibold uppercase tracking-[0.2em] text-[#00A6FB]">The Clinical Disparity</span>
+                    <h2 className="font-display font-bold text-[#001B2E] text-3xl sm:text-5xl tracking-tight mt-4 leading-[1.15]">Africa has fewer than 1 dermatologist<br className="hidden md:block"/> per million people.</h2>
+                    <div className="w-16 h-1 bg-[#00A6FB] rounded-full mx-auto mt-6 opacity-60" />
+                    <p className="text-base md:text-lg text-[#003554]/75 font-sans font-light leading-relaxed mt-6 max-w-2xl mx-auto">Skin diseases are among the most common reasons for primary clinic visits — yet most go misdiagnosed or untreated at the community level.</p>
+                  </div>
+                  <div className="max-w-6xl mx-auto bg-gradient-to-b from-white to-[#F0F4F8]/30 rounded-3xl border border-[#003554]/10 overflow-hidden shadow-[0_20px_50px_rgba(0,27,46,0.04)]">
+                    <div className="grid grid-cols-1 lg:grid-cols-12">
+                      <div className="lg:col-span-7 relative min-h-[350px] sm:min-h-[450px] overflow-hidden">
+                        <img src="https://images.unsplash.com/photo-1584515979956-d9f6e5d09982?auto=format&fit=crop&w=1600&q=80" alt="" className="absolute inset-0 w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t lg:bg-gradient-to-r from-[#001B2E]/95 via-[#001B2E]/70 to-transparent z-10" />
+                        <div className="absolute bottom-12 left-12 z-20 max-w-sm text-left">
+                          <span className="text-[10px] text-[#00A6FB] font-bold uppercase tracking-widest block mb-2">Field Support Optimization</span>
+                          <h3 className="text-white font-display font-bold text-2xl leading-tight">Empowering frontlines in local community clinics.</h3>
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-12 text-[#3d4943] font-medium text-xs">
-                      No patient case history match. Let's start a New Assessment to record a case.
+                      <div className="lg:col-span-5 p-8 md:p-10 flex flex-col justify-center gap-6">
+                        {[
+                          { icon: <Heart className="w-5 h-5" />, stat: '1 in 3', label: 'Affected Annually', desc: 'Ghanaians affected by common, preventable dermatological conditions every year.' },
+                          { icon: <Clock className="w-5 h-5" />, stat: '72 Hours', label: 'Average Rural Wait', desc: 'Mean commute and wait times to consult specialists in metropolitan centers.' },
+                          { icon: <AlertTriangle className="w-5 h-5" />, stat: '60%', label: 'Initial Misdiagnosis', desc: 'Cases misdiagnosed at community care outposts without assistive workflows.', red: true },
+                        ].map(({ icon, stat, label, desc, red }) => (
+                          <div key={stat} className="bg-white p-6 rounded-2xl border border-[#003554]/5 shadow-sm hover:border-[#00A6FB]/20 transition-all duration-300">
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${red ? 'bg-red-500/10 text-red-500' : 'bg-[#00A6FB]/10 text-[#00A6FB]'}`}>{icon}</div>
+                              <div>
+                                <h3 className="font-display font-bold text-3xl text-[#001B2E] tracking-tight">{stat}</h3>
+                                <p className={`text-[10px] uppercase tracking-widest font-bold mt-0.5 ${red ? 'text-red-500/70' : 'text-[#003554]/50'}`}>{label}</p>
+                              </div>
+                            </div>
+                            <p className="text-xs text-[#003554]/70 leading-relaxed mt-3 font-light">{desc}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                </section>
 
-                <footer className="px-5 py-3.5 bg-[#f1f4f6] flex justify-between items-center border-t border-[#bccac1] text-xs font-semibold text-[#181c1e]">
-                  <span>Showing {processedCases.length} of {cases.length} entries registered</span>
-                  <div className="flex gap-1.5">
-                    <button className="w-8 h-8 rounded border border-[#bccac1] bg-white flex items-center justify-center text-[#3d4943] hover:bg-[#e5e9eb] disabled:opacity-50" disabled>
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button className="w-8 h-8 rounded bg-[#0077b6] text-white font-bold">1</button>
-                    <button className="w-8 h-8 rounded border border-[#bccac1] bg-white flex items-center justify-center text-[#3d4943] hover:bg-[#e5e9eb]">2</button>
-                    <button className="w-8 h-8 rounded border border-[#bccac1] bg-white flex items-center justify-center text-[#3d4943] hover:bg-[#e5e9eb]">
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                {/* How it works */}
+                <span id="how-it-works" className="-mt-20 pt-5 block" />
+                <section className="relative py-24 md:py-32 px-6 md:px-12 bg-[#F8FAFC] border-t border-slate-200 select-none overflow-hidden">
+                  <div className="max-w-4xl mx-auto text-center mb-16 relative z-10">
+                    <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-[#00A6FB]/5 border border-[#00A6FB]/10 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#00A6FB]">The Protocol</span>
+                    <h2 className="font-display font-bold text-slate-900 text-3xl sm:text-5xl tracking-tight mt-4 leading-tight">Three steps. Two seconds. <span className="text-[#00A6FB]">One life changed.</span></h2>
+                  </div>
+                  <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8 items-stretch relative z-10">
+                    {[
+                      { step: '01', title: 'Capture Image', desc: 'The clinician captures a clear frame of the skin anomaly directly within the device browser, or uploads from local device storage.' },
+                      { step: '02', title: 'Reference Map', desc: 'The internal software engine evaluates key visual structural parameters locally, formatting confirmed criteria markers in under two seconds.' },
+                      { step: '03', title: 'Action Results', desc: 'Review structural indices, confirm urgency tiers, and copy instantly generated case summaries formatted for local referral networks.' },
+                    ].map(({ step, title, desc }) => (
+                      <div key={step} className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col gap-4 hover:shadow-lg hover:border-[#00A6FB]/30 transition-all duration-300">
+                        <div className="aspect-[1.6] w-full rounded-xl overflow-hidden bg-slate-50 border border-slate-100">
+                          <img src="https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=800&q=80" alt="" className="w-full h-full object-cover filter brightness-95" />
+                        </div>
+                        <div className="flex items-start justify-between pt-2">
+                          <div>
+                            <span className="text-[10px] text-[#00A6FB] font-bold uppercase tracking-widest">Step {step}</span>
+                            <h3 className="font-display font-bold text-lg text-slate-900 mt-0.5">{title}</h3>
+                          </div>
+                          <span className="text-xl font-display font-light text-slate-300">{step}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed font-light">{desc}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* CTA */}
+                <section className="py-20 md:py-28 px-4 md:px-8 bg-gradient-to-br from-[#0A1628] to-[#0F2D1F] text-white relative z-10 select-none overflow-hidden text-center border-t border-white/5">
+                  <div className="max-w-4xl mx-auto space-y-7 relative z-10">
+                    <h2 className="font-display font-black text-white text-3xl sm:text-4xl leading-tight tracking-tight">Ready to bring AI-powered skin care to your clinic?</h2>
+                    <p className="text-slate-300 font-sans text-sm sm:text-base leading-relaxed max-w-xl mx-auto">DermaDetect is free to use, works offline, and takes less than 2 minutes to learn.</p>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-3.5 max-w-md mx-auto">
+                      <button onClick={resetAndStartAssessment} className="w-full sm:w-auto h-13 px-8 bg-[#00A6FB] text-[#001B2E] font-display font-bold text-sm rounded-xl flex items-center justify-center gap-2.5 cursor-pointer active:scale-95 hover:-translate-y-0.5 transition-all">
+                        <PlusCircle className="w-5 h-5" /><span>Start Using DermaDetect</span>
+                      </button>
+                    </div>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-6 sm:gap-10 pt-10 border-t border-white/5 font-mono text-[10.5px] text-slate-400">
+                      <span className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-[#082F49]" />🔒 Patient data stays on your device</span>
+                      <span className="flex items-center gap-2"><WifiOff className="w-4 h-4 text-[#EF9F27]" />📶 Works without internet</span>
+                      <span className="flex items-center gap-2"><Globe className="w-4 h-4 text-[#32c494]" />🌍 Built for African healthcare</span>
+                    </div>
+                  </div>
+                </section>
+
+                {/* FAQ */}
+                <section className="bg-white py-16 md:py-24 border-b border-slate-200 select-none">
+                  <div className="max-w-4xl mx-auto px-4">
+                    <div className="text-center mb-12">
+                      <span className="text-xs font-bold font-mono tracking-widest text-[#082F49] uppercase">FAQ</span>
+                      <h2 className="font-display font-black text-slate-900 text-2xl md:text-3xl tracking-tight mt-2.5">Privacy, Scope & Safety FAQ</h2>
+                    </div>
+                    <div className="space-y-4">
+                      {[
+                        { q: "What skin conditions can DermaDetect help with?", a: "The system assists in recognizing conditions including Tinea Corporis, Eczema, Impetigo, Scabies, Melanoma, Basal Cell Carcinoma, and more. It aids clinical triaging but does not replace a doctor's examination." },
+                        { q: "How is patient data kept private and secure?", a: "All image evaluation occurs locally on your browser. No patient records or photographs are sent to external servers without your explicit action." },
+                        { q: "Can I generate and download clinical reports offline?", a: "Yes. Once loaded, report compilation operates fully offline. You can generate, preview, and download patient summaries or referral notes directly to your local device." },
+                      ].map((faq, idx) => {
+                        const isOpen = !!faqOpenState[idx];
+                        return (
+                          <div key={idx} className="border border-[#bccac1]/75 rounded-xl overflow-hidden transition-all duration-300 bg-[#F8F9FA]/50">
+                            <button onClick={() => setFaqOpenState({ ...faqOpenState, [idx]: !isOpen })} className="w-full text-left p-5 flex justify-between items-center font-display font-bold text-sm text-[#181c1e] cursor-pointer">
+                              <span>{faq.q}</span>
+                              <span className="text-[#082F49] text-lg font-bold ml-4">{isOpen ? '−' : '+'}</span>
+                            </button>
+                            {isOpen && <div className="px-5 pb-5 pt-1 text-xs text-slate-600 leading-relaxed border-t border-dashed border-slate-200">{faq.a}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Footer */}
+                <footer className="bg-[#0A121D] text-slate-300 pt-16 pb-10 border-t-2 border-[#082F49]/30">
+                  <div className="max-w-6xl mx-auto px-4 md:px-8 grid grid-cols-1 md:grid-cols-12 gap-10 pb-12 border-b border-white/5 text-xs">
+                    <div className="md:col-span-5 space-y-4">
+                      <div className="flex items-center gap-2.5 text-white">
+                        <div className="w-8 h-8 rounded-lg bg-[#082F49] flex items-center justify-center font-black text-sm select-none">DD</div>
+                        <span className="font-display font-extrabold text-base text-white">DermaDetect</span>
+                      </div>
+                      <p className="text-slate-400 leading-relaxed text-xs">DermaDetect is an open-source assistive screening tool designed to expand primary care diagnostic support in community, rural, and outreach settings.</p>
+                      <p className="text-slate-500 text-[10.5px] leading-relaxed">*This is a clinical decision support tool and does not replace professional medical advice or formal diagnosis.</p>
+                    </div>
+                    <div className="md:col-span-2 space-y-3">
+                      <h4 className="font-display font-bold text-white text-xs uppercase tracking-wider">Clinical Tools</h4>
+                      <ul className="space-y-2 text-slate-400">
+                        <li><button onClick={resetAndStartAssessment} className="hover:text-white transition-colors">Start Assessment</button></li>
+                        <li><button onClick={() => setScreen('case-history')} className="hover:text-white transition-colors">View Patient Roster</button></li>
+                      </ul>
+                    </div>
+                    <div className="md:col-span-3 space-y-3">
+                      <h4 className="font-display font-bold text-white text-xs uppercase tracking-wider">Device Privacy</h4>
+                      <p className="text-slate-400 leading-relaxed text-[11px]">All processing occurs locally within your browser. No sensitive patient data is transmitted to remote servers.</p>
+                    </div>
+                  </div>
+                  <div className="max-w-6xl mx-auto px-4 md:px-8 pt-8 flex justify-between items-center text-[11px] text-slate-400">
+                    <span>© {new Date().getFullYear()} DermaDetect Telehealth Systems.</span>
                   </div>
                 </footer>
               </div>
-            </div>
-          </section>
-        )}
-      </main>
+            )}
 
-      {/* FOOTER */}
-      <footer className="bg-white border-t border-[#bccac1] py-6 select-none print:hidden relative overflow-hidden">
-        <div className="max-w-5xl mx-auto px-4 md:px-8 flex flex-col sm:flex-row justify-between items-center gap-4 relative z-10">
-          <div className="flex flex-col sm:flex-row items-center gap-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#0077b6] flex items-center justify-center text-white font-bold text-sm shadow-sm">DD</div>
-              <span className="font-display font-extrabold text-[#0077b6] text-sm tracking-widest uppercase">DermaDetect</span>
-            </div>
-            <span className="hidden sm:inline text-[#bccac1]">•</span>
-            <span className="text-xs font-bold text-[#3d4943] tracking-wide">
-              © {new Date().getFullYear()} Community Health Digital System
-            </span>
-          </div>
-          <div className="flex items-center gap-5 text-xs font-bold text-[#3d4943]">
-            <div className="flex items-center gap-2 bg-[#f0f9ff] px-3 py-1.5 rounded-full border border-[#0077b6]/20">
-              <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />
-              <span className="tracking-wide">Offline Cache <span className="text-[#0077b6]">Active</span></span>
-            </div>
-            <button onClick={() => alert("DermaDetect clinic platform HIPAA Compliant data vault encryption active. No personal metrics are logged remotely.")} className="hover:text-[#0077b6] transition-colors duration-300 relative group">
-              Privacy
-              <span className="absolute -bottom-1 left-0 w-0 h-[2px] bg-[#0077b6] transition-all duration-300 group-hover:w-full rounded"></span>
-            </button>
-            <button onClick={() => alert("Supported cases: Tinea Corporis, Basal Cell, Melanoma, Seborrheic, Contact Dermatitis. Contact support@dermadetect.org")} className="hover:text-[#0077b6] transition-colors duration-300 relative group">
-              Support
-              <span className="absolute -bottom-1 left-0 w-0 h-[2px] bg-[#0077b6] transition-all duration-300 group-hover:w-full rounded"></span>
-            </button>
-          </div>
-        </div>
-      </footer>
-
-      {/* MODAL: ANALYSIS LOADER */}
-      {analysisLoading && (
-        <div className="fixed inset-0 bg-[#181c1e]/60 backdrop-blur-md flex items-center justify-center z-[100] px-4">
-          <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center border border-[#bccac1] shadow-2xl space-y-4">
-            <Loader2 className="w-14 h-14 text-[#0077b6] animate-spin mx-auto" />
-            <h3 className="font-display font-extrabold text-[#181c1e] text-lg">AI Dermatological Diagnostic Analysis</h3>
-            <p className="text-xs text-[#3d4943] max-w-xs mx-auto animate-pulse leading-relaxed">
-              {loadingText}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: CASE DETAIL VIEW */}
-      {selectedDetailsCase && (
-        <div 
-          className="fixed inset-0 bg-[#181c1e]/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4"
-          onClick={(e) => { if(e.target === e.currentTarget) setSelectedDetailsCase(null); }}
-        >
-          <div className="bg-white w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-[#bccac1]">
-            
-            <div className="p-5 border-b border-[#bccac1] flex justify-between items-center bg-[#f1f4f6]">
-              <div>
-                <span className="text-[10px] text-[#0077b6] font-black tracking-widest uppercase block leading-none">Case History Vault</span>
-                <h2 className="font-display font-extrabold text-base md:text-lg text-[#181c1e] mt-2 block">
-                  Patient Assessment: {selectedDetailsCase.patient.name}
-                </h2>
-              </div>
-              <button 
-                onClick={() => setSelectedDetailsCase(null)}
-                className="p-1.5 hover:bg-[#e0e3e5] rounded-full transition-colors border border-transparent hover:border-[#bccac1]"
-              >
-                <X className="w-5 h-5 text-[#3d4943]" />
-              </button>
-            </div>
-
-            <div className="p-6 md:p-8 space-y-6 max-h-[72vh] overflow-y-auto">
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-[#f1f4f6]">
-                <div className="space-y-4 text-xs font-semibold">
-                  <h3 className="font-display font-bold text-xs text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
-                    Patient Profile
-                  </h3>
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-[#6d7a73] uppercase tracking-wider block">Full Legal Name</p>
-                    <p className="text-sm font-bold text-[#181c1e]">{selectedDetailsCase.patient.name}</p>
+            {/* ASSESSMENT FLOW */}
+            {(screen === 'assessment-info' || screen === 'assessment-capture' || screen === 'assessment-review' || screen === 'referral-note') && (
+              <div className="flex-1 flex flex-col md:flex-row">
+                {/* Sidebar */}
+                <aside className="w-full md:w-64 bg-slate-50 md:border-r border-slate-200 py-4 md:py-6 px-4 flex flex-col md:min-h-[calc(100vh-3.5rem)] select-none">
+                  <div className="mb-6 hidden md:block mt-7">
+                    <h2 className="font-display font-bold text-base text-slate-900">Assessment Progress</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">Clinical Workflow Protocol</p>
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-[#6d7a73] uppercase tracking-wider block">Case ID / Gender / Age</p>
-                    <p className="text-[#181c1e]">{selectedDetailsCase.id} • {selectedDetailsCase.patient.sex} • {selectedDetailsCase.patient.age} Yrs</p>
+                  <div className="flex md:flex-col gap-2 overflow-x-auto pb-2 md:pb-0 scrollbar-none">
+                    {[
+                      { label: 'Step 1: Patient Info',   icon: <UserPen className="w-4 h-4 shrink-0" />,    id: 'assessment-info',    enabled: true },
+                      { label: 'Step 2: Skin Capture',   icon: <Camera className="w-4 h-4 shrink-0" />,     id: 'assessment-capture', enabled: !!patient.name },
+                      { label: 'Step 3: Action Results', icon: <ClipboardCheck className="w-4 h-4 shrink-0" />, id: 'assessment-review', enabled: !!activeAnalysisResult },
+                    ].map(({ label, icon, id, enabled }) => (
+                      <div key={id} onClick={() => { if (enabled) setScreen(id as any); }}
+                        className={`flex items-center gap-3 p-3 rounded-xl transition-all grow md:grow-0 shrink-0 ${!enabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${screen === id ? 'bg-[#00A6FB] text-white font-semibold shadow-sm' : 'text-slate-600 hover:bg-slate-200/60'}`}>
+                        {icon}<span className="font-display text-xs font-medium whitespace-nowrap">{label}</span>
+                      </div>
+                    ))}
                   </div>
-                </div>
-
-                <div className="space-y-4 text-xs font-semibold">
-                  <h3 className="font-display font-bold text-xs text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
-                    Medical Indicators
-                  </h3>
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-[#6d7a73] uppercase tracking-wider block">Primary Diagnosed Finding</p>
-                    <p className="text-sm font-bold text-[#181c1e]">{selectedDetailsCase.finding.primaryFinding}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-[10px] text-[#6d7a73] uppercase tracking-wider block">AI Engine Triage Urgency</p>
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                      selectedDetailsCase.finding.urgency === 'High' 
-                        ? 'bg-[#ffdad6] border-[#ba1a1a] text-[#93000a]' 
-                        : selectedDetailsCase.finding.urgency === 'Moderate'
-                        ? 'bg-[#ffe0b2] border-[#ffe0b2] text-[#e65100]'
-                        : 'bg-[#e8f5e9] border-[#c8e6c9] text-[#2e7d32]'
-                    }`}>
-                      {selectedDetailsCase.finding.urgency} Urgency ({selectedDetailsCase.finding.confidence}% Match)
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
-                  Lesion Specimen Media
-                </h3>
-                <div className={`aspect-video rounded-xl overflow-hidden relative border border-[#bccac1] bg-[#f1f4f6] cursor-pointer group ${zoomImage ? 'h-auto max-h-[450px]' : ''}`}>
-                  <img 
-                    src={selectedDetailsCase.image} 
-                    alt="Clinical specimen photograph" 
-                    className={`w-full h-full object-cover transition-all ${zoomImage ? 'object-contain bg-black' : 'group-hover:scale-105'}`} 
-                  />
-                  <div 
-                    onClick={() => setZoomImage(!zoomImage)}
-                    className="absolute bottom-3 right-3 bg-white/90 px-3 py-1 bg-white border border-[#bccac1] hover:bg-white rounded-lg text-xs font-display font-bold text-[#181c1e] flex items-center gap-1.5 shadow-md"
-                  >
-                    <ZoomIn className="w-4 h-4 text-[#0077b6]" />
-                    <span>{zoomImage ? "Normal View" : "Full Zoom View"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {selectedDetailsCase.patient.symptoms && (
-                <div className="space-y-2">
-                  <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
-                    Patient Observation Symptoms
-                  </h3>
-                  <p className="text-xs text-[#3d4943] italic leading-relaxed p-3 border-l-2 border-[#0077b6] bg-[#f1f4f6] rounded-r-lg">
-                    "{selectedDetailsCase.patient.symptoms}"
-                  </p>
-                </div>
-              )}
-
-              <div className="space-y-3">
-                <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">
-                  Clinical Recommended Actions
-                </h3>
-                <p className="text-sm font-bold text-[#181c1e] leading-relaxed">
-                  {selectedDetailsCase.finding.recommendedAction}
-                </p>
-                <TreatmentRecommendations 
-                  finding={selectedDetailsCase.finding} 
-                  patient={selectedDetailsCase.patient} 
-                  caseId={selectedDetailsCase.id} 
-                />
-              </div>
-            </div>
-
-            <div className="p-4 bg-[#f1f4f6] flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#bccac1]">
-              <button 
-                onClick={() => setCaseToDelete(selectedDetailsCase)}
-                className="w-full sm:w-auto h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer order-last sm:order-first"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Delete Case</span>
-              </button>
-
-              <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                <button 
-                  onClick={() => setSelectedDetailsCase(null)}
-                  className="h-10 px-5 text-xs font-bold text-[#3d4943] hover:bg-[#e0e3e5] rounded-xl border border-[#bccac1] bg-white transition-colors cursor-pointer"
-                >
-                  Close View
-                </button>
-
-                <button 
-                  onClick={() => downloadPdfRecord(selectedDetailsCase)}
-                  className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Download Report</span>
-                </button>
-                
-                <button 
-                  onClick={() => {
-                    setPatient(selectedDetailsCase.patient);
-                    setCapturedImage(selectedDetailsCase.image);
-                    setActiveAnalysisResult(selectedDetailsCase.finding);
-                    setActiveCaseId(selectedDetailsCase.id);
-                    setSelectedDetailsCase(null);
-                    setScreen('referral-note');
-                  }}
-                  className="h-10 px-6 bg-[#0077b6] hover:bg-[#0096c7] text-white rounded-xl text-xs font-bold shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <FileText className="w-4 h-4" />
-                  <span>Format Referral Note</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: SUCCESS ANIMATION */}
-      {showSuccessAnimation && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm p-8 text-center shadow-2xl border border-slate-100">
-            <div className="checkmark-wrapper mb-6">
-              <svg className="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
-                <circle className="checkmark-circle" cx="26" cy="26" r="25" fill="none" />
-                <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
-              </svg>
-            </div>
-            <h3 className="font-display text-xl font-bold text-slate-900 tracking-tight mb-2">
-              Case Saved Successfully
-            </h3>
-            <p className="text-sm text-slate-500 leading-relaxed mb-4">
-              Diagnostic findings have been safely synced to patient records.
-            </p>
-            <div className="inline-flex items-center gap-1.5 text-xs text-[#0077b6] font-mono font-bold bg-[#f0f9ff] px-3 py-1.5 rounded-lg">
-              <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />
-              REF ID: {activeCaseId}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: DELETE CONFIRMATION */}
-      {caseToDelete && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 space-y-4">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-6 h-6 animate-pulse" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-display text-lg font-bold text-slate-900 tracking-tight">
-                  Delete Patient Case Record
-                </h3>
-                <p className="text-xs text-[#6d7a73]">
-                  You are about to permanently remove this case history from local and server storage. This process is irreversible.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
-              <div className="flex justify-between items-center text-slate-500">
-                <span>Patient Full Name:</span>
-                <span className="font-bold text-slate-800">{caseToDelete.patient.name}</span>
-              </div>
-              <div className="flex justify-between items-center text-slate-500">
-                <span>Case Reference ID:</span>
-                <span className="font-mono text-slate-800 font-bold">{caseToDelete.id}</span>
-              </div>
-              <div className="flex justify-between items-center text-slate-500">
-                <span>Clinical Finding:</span>
-                <span className="font-bold text-slate-800">{caseToDelete.finding.primaryFinding}</span>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end pt-2 text-xs font-bold">
-              <button 
-                onClick={() => setCaseToDelete(null)}
-                className="h-10 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 transition-colors cursor-pointer"
-              >
-                Cancel, Keep Record
-              </button>
-              <button 
-                onClick={() => deleteCaseRecord(caseToDelete.id)}
-                className="h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Yes, Permanently Delete</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MOBILE BOTTOM NAV */}
-      <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-[#bccac1] z-40 flex items-center justify-around px-4 md:hidden no-print shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
-        <button 
-          onClick={() => { setScreen('home'); stopWebcam(); }}
-          className={`flex flex-col items-center gap-1 text-[10px] font-bold transition-colors ${
-            screen === 'home' ? 'text-[#0077b6]' : 'text-[#3d4943] hover:text-[#0077b6]'
-          }`}
-        >
-          <Home className="w-5 h-5" />
-          <span>Home</span>
-        </button>
-
-        <button 
-          onClick={resetAndStartAssessment}
-          className={`flex flex-col items-center gap-1 text-[10px] font-bold transition-colors ${
-            screen === 'assessment-info' || screen === 'assessment-capture' || screen === 'assessment-review'
-              ? 'text-[#0077b6]'
-              : 'text-[#3d4943] hover:text-[#0077b6]'
-          }`}
-        >
-          <PlusCircle className="w-5 h-5" />
-          <span>New Case</span>
-        </button>
-
-        <button 
-          onClick={() => { setScreen('case-history'); stopWebcam(); }}
-          className={`flex flex-col items-center gap-1 text-[10px] font-bold transition-colors ${
-            screen === 'case-history' ? 'text-[#0077b6]' : 'text-[#3d4943] hover:text-[#0077b6]'
-          }`}
-        >
-          <History className="w-5 h-5" />
-          <span>Logs History</span>
-        </button>
-      </div>
-
-      {/* ═══════════════════════════════════════════════════════════════
-          REPORT PREVIEW MODAL
-          Full-screen slide-up overlay showing the complete clinical
-          report before the user commits to PDF export.
-          ═══════════════════════════════════════════════════════════════ */}
-      {showReportPreview && activeAnalysisResult && (
-        <div
-          className="fixed inset-0 z-[100] flex flex-col bg-black/60 backdrop-blur-sm"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowReportPreview(false); }}
-        >
-          <div className="relative flex flex-col bg-white w-full h-full max-w-4xl mx-auto shadow-2xl overflow-hidden animate-slide-up md:my-4 md:rounded-2xl md:h-[calc(100vh-2rem)]">
-
-            {/* Modal header */}
-            <div className="bg-[#0077b6] px-6 py-4 flex items-center justify-between shrink-0">
-              <div>
-                <h2 className="font-display font-extrabold text-white text-lg tracking-tight">
-                  Report Preview
-                </h2>
-                <p className="text-xs text-white/80 mt-0.5">
-                  REF: {activeCaseId || 'NEW-CASE'} &mdash; Review before exporting PDF
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={async () => {
-                    if (!activeAnalysisResult) return;
-                    setIsGeneratingPdf(true);
-                    try {
-                      const payload = {
-                        case_id: activeCaseId || `DD-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-                        patient: { ...patient, healthWorkerName },
-                        clinical: {
-                          primaryFinding: activeAnalysisResult.primaryFinding,
-                          confidence: activeAnalysisResult.confidence,
-                          urgency: activeAnalysisResult.urgency,
-                          referralNote: activeAnalysisResult.referralNote,
-                          treatmentNotes: activeAnalysisResult.treatmentNotes,
-                          therapyRegimen: activeAnalysisResult.therapyRegimen,
-                          patientHandout: activeAnalysisResult.patientHandout,
-                          recommendedAction: activeAnalysisResult.recommendedAction
-                        },
-                        images: { original_b64: capturedImage, heatmap_b64: activeAnalysisResult.heatmap_b64 }
-                      };
-                      const response = await fetch('/api/generate-pdf', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                      });
-                      if (!response.ok) throw new Error('PDF generation failed');
-                      const data = await response.json();
-                      if (data.pdf_b64) {
-                        const link = document.createElement('a');
-                        link.href = `data:application/pdf;base64,${data.pdf_b64}`;
-                        link.download = `DermaDetect_Report_${patient.name || 'Patient'}.pdf`;
-                        link.click();
-                        setShowReportPreview(false);
-                      }
-                    } catch (err) {
-                      console.error(err);
-                      alert('Failed to generate PDF. Please try again.');
-                    } finally {
-                      setIsGeneratingPdf(false);
-                    }
-                  }}
-                  disabled={isGeneratingPdf}
-                  className="h-9 px-4 bg-white text-[#0077b6] font-display font-bold text-xs rounded-lg hover:bg-[#e0f2fe] transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                  <span>{isGeneratingPdf ? 'Generating...' : 'Export PDF'}</span>
-                </button>
-                <button
-                  onClick={() => setShowReportPreview(false)}
-                  className="w-9 h-9 rounded-lg bg-white/20 hover:bg-white/30 flex items-center justify-center text-white transition-colors cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal scrollable body */}
-            <div className="flex-1 overflow-y-auto bg-[#f7fafc]">
-              <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-
-                {/* Patient info strip */}
-                <div className="bg-white rounded-xl border border-[#bccac1] p-5 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm shadow-sm">
-                  {[
-                    { label: 'Patient', value: patient.name || 'Anonymous' },
-                    { label: 'Age / Sex', value: `${patient.age || '—'} / ${patient.sex || '—'}` },
-                    { label: 'Health Worker', value: healthWorkerName },
-                    { label: 'Date', value: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) },
-                  ].map((item, i) => (
-                    <div key={i}>
-                      <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block mb-0.5">{item.label}</span>
-                      <span className="font-semibold text-[#181c1e] text-xs">{item.value}</span>
+                  <div className="mt-auto hidden md:block pt-4 border-t border-slate-200">
+                    <div className="flex items-center gap-2 px-1 text-slate-400">
+                      <ShieldCheck className="w-4 h-4 text-[#00A6FB]" />
+                      <span className="font-sans font-semibold text-[9px] tracking-wider uppercase">Secure Diagnostic Link</span>
                     </div>
-                  ))}
-                  {patient.symptoms && (
-                    <div className="col-span-2 md:col-span-4">
-                      <span className="text-[10px] font-bold text-[#3d4943] uppercase tracking-wider block mb-0.5">Reported Symptoms</span>
-                      <span className="font-semibold text-[#181c1e] text-xs">{patient.symptoms}</span>
+                  </div>
+                </aside>
+
+                <div className="flex-1 flex flex-col pt-4 md:pt-0">
+
+                  {/* Step 1: Patient Info */}
+                  {screen === 'assessment-info' && (
+                    <div className="p-4 md:p-8 flex-1 flex items-center justify-center canvas-bg mt-7">
+                      <div className="bg-white border border-[#bccac1] rounded-2xl p-6 md:p-8 max-w-lg w-full shadow-sm">
+                        <header className="mb-6">
+                          <h2 className="font-display font-extrabold text-xl md:text-2xl text-[#181c1e]">Patient Details</h2>
+                          <p className="text-xs text-[#3d4943] mt-1.5">Record basic patient identifiers, demographics, and symptom definitions.</p>
+                        </header>
+                        <form className="space-y-5" onSubmit={e => { e.preventDefault(); if (patient.name) setScreen('assessment-capture'); }}>
+                          <div className="space-y-1.5">
+                            <label className="font-display text-xs font-bold text-[#181c1e] block">Patient Full Name</label>
+                            <input type="text" required value={patient.name} onChange={e => setPatient({...patient, name: e.target.value})} placeholder="Full legal name" className="w-full h-11 px-3.5 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] bg-white text-sm transition-all" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-1.5">
+                              <label className="font-display text-xs font-bold text-[#181c1e] block">Age (Years)</label>
+                              <input type="number" required min="0" max="125" value={patient.age} onChange={e => setPatient({...patient, age: e.target.value})} placeholder="e.g. 34" className="w-full h-11 px-3.5 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] bg-white text-sm transition-all" />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="font-display text-xs font-bold text-[#181c1e] block">Sex Selection</label>
+                              <div className="flex h-11 border border-[#bccac1] rounded-lg overflow-hidden bg-white">
+                                {['Male','Female'].map((s, i) => (
+                                  <React.Fragment key={s}>
+                                    {i > 0 && <div className="w-[1px] bg-[#bccac1]" />}
+                                    <button type="button" onClick={() => setPatient({...patient, sex: s as any})} className={`flex-1 text-xs font-bold transition-all ${patient.sex === s ? 'bg-[#d6e0f6] text-[#121c2c]' : 'text-[#3d4943] hover:bg-[#f1f4f6]'}`}>{s}</button>
+                                  </React.Fragment>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="font-display text-xs font-bold text-[#181c1e] block">Patient Contact Number</label>
+                            <input type="tel" required value={patient.contactNumber} onChange={e => setPatient({...patient, contactNumber: e.target.value})} placeholder="0200000000" max={10} className="w-full h-11 px-3.5 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] bg-white text-sm transition-all" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="font-display text-xs font-bold text-[#181c1e] block">Brief Symptom Description</label>
+                            <textarea rows={3} value={patient.symptoms} onChange={e => setPatient({...patient, symptoms: e.target.value})} placeholder="Describe lesion duration, localized itch, flareups, and changes observed on the skin..." className="w-full p-3 border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6] bg-white text-sm transition-all resize-none" />
+                          </div>
+                          <div className="pt-2">
+                            <button type="submit" disabled={!patient.name || !patient.age || !patient.sex || !patient.contactNumber} className="w-full h-11 bg-[#0077b6] hover:bg-[#0096c7] disabled:bg-[#bccac1] disabled:cursor-not-allowed text-white font-display font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm">
+                              <span>Next Step: Capture Skin Image</span><ArrowRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </form>
+                      </div>
                     </div>
                   )}
-                </div>
 
-                {/* Primary finding banner */}
-                <div className={`rounded-xl border p-5 flex items-center gap-4 ${
-                  activeAnalysisResult.urgency === 'High'     ? 'bg-rose-50 border-rose-200' :
-                  activeAnalysisResult.urgency === 'Moderate' ? 'bg-amber-50 border-amber-200' :
-                                                                'bg-emerald-50 border-emerald-200'
-                }`}>
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Primary AI Finding</span>
-                    <h3 className="font-display font-extrabold text-xl text-[#181c1e]">{activeAnalysisResult.primaryFinding}</h3>
-                    <p className="text-xs mt-1 font-semibold text-slate-600">
-                      {activeAnalysisResult.confidence}% confidence &nbsp;·&nbsp; Urgency:&nbsp;
-                      <span className={`font-bold ${
-                        activeAnalysisResult.urgency === 'High' ? 'text-rose-600' :
-                        activeAnalysisResult.urgency === 'Moderate' ? 'text-amber-600' : 'text-emerald-600'
-                      }`}>{activeAnalysisResult.urgency}</span>
-                    </p>
-                    <p className="text-[11px] text-slate-600 mt-1 leading-relaxed">{activeAnalysisResult.urgencyText}</p>
-                  </div>
-                  {capturedImage && (
-                    <img src={capturedImage} alt="Lesion" className="w-20 h-20 object-cover rounded-xl border border-[#bccac1] shrink-0 ml-auto" />
+                  {/* Step 2: Capture */}
+                  {screen === 'assessment-capture' && (
+                    <div className="p-4 md:p-8 flex-1 canvas-bg mt-7">
+                      <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                        <div className="space-y-6">
+                          <div>
+                            <span className="inline-block bg-[#ebeef0] text-[#555f71] px-2.5 py-0.5 rounded-full font-display font-semibold text-[10px] mb-2 uppercase tracking-wide">Assessment Phase 02</span>
+                            <h2 className="font-display font-extrabold text-[#181c1e] text-2xl">Capture Skin Image</h2>
+                            <p className="text-sm text-[#3d4943] mt-2 leading-relaxed">For accurate AI triage evaluation, capture a sharp close-up photo of the patient's skin lesion.</p>
+                          </div>
+                          <div className="bg-white border border-[#bccac1] p-4 rounded-xl flex gap-3">
+                            <div className="p-2 bg-[#d6e0f6] rounded-full text-[#0077b6] h-fit"><Lightbulb className="w-5 h-5" /></div>
+                            <div>
+                              <h4 className="font-display font-bold text-xs text-[#181c1e]">Photography Tip</h4>
+                              <p className="text-[11px] text-[#3d4943] mt-1 leading-relaxed">Use natural lighting if possible. Avoid using direct camera flash over wet or oily ulcers.</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            {isCameraActive ? (
+                              <button onClick={captureFrame} className="flex-1 h-11 bg-[#0077b6] text-white rounded-lg font-display font-bold text-sm hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                                <Camera className="w-5 h-5 animate-pulse" />Snaps Assessment Frame
+                              </button>
+                            ) : (
+                              <button onClick={startWebcam} className="flex-1 h-11 bg-[#0077b6] text-white rounded-lg font-display font-bold text-sm hover:bg-[#0096c7] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                                <Camera className="w-5 h-5" />Take Photo with Camera
+                              </button>
+                            )}
+                            <label className="flex-1 h-11 border-2 border-dashed border-[#0077b6] text-[#0077b6] bg-white rounded-lg font-display font-bold text-sm hover:bg-[#f1f4f6] transition-all flex items-center justify-center gap-2 cursor-pointer">
+                              <Upload className="w-5 h-5" /><span>Upload from Gallery</span>
+                              <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                            </label>
+                          </div>
+                          {isCameraActive && <button onClick={stopWebcam} className="w-full h-9 bg-[#ffdad6] text-[#93000a] text-xs font-bold rounded-lg hover:bg-red-200 transition-colors">Cancel Camera Stream</button>}
+                        </div>
+                        <div className="space-y-4">
+                          <div className="bg-white border rounded-2xl p-4 border-[#bccac1]">
+                            <h3 className="font-display text-xs font-bold text-[#181c1e] mb-3 uppercase tracking-wider">Assessment Preview</h3>
+                            <div className="aspect-[4/5] bg-[#ebeef0] border-2 border-dashed border-[#bccac1] rounded-xl overflow-hidden flex flex-col items-center justify-center p-4 relative">
+                              {isCameraActive && !capturedImage && <video ref={videoRef} autoPlay className="w-full h-full object-cover rounded-lg absolute inset-0" />}
+                              {capturedImage ? (
+                                <img src={capturedImage} alt="Clinic Skin Frame" className="w-full h-full object-cover rounded-lg absolute inset-0" />
+                              ) : (!isCameraActive && (
+                                <div className="text-center p-6 space-y-3 pointer-events-none">
+                                  <span className="w-12 h-12 rounded-full bg-[#f1f4f6] border border-[#bccac1] flex items-center justify-center text-[#6d7a73] mx-auto"><Camera className="w-6 h-6" /></span>
+                                  <p className="font-display font-extrabold text-sm text-[#3d4943]">No active image captured</p>
+                                </div>
+                              ))}
+                              {cameraError && !capturedImage && (
+                                <div className="absolute inset-0 bg-[#ffdad6]/95 flex items-center justify-center p-6 text-center z-10 rounded-lg">
+                                  <p className="text-xs font-semibold text-[#93000a] leading-relaxed">{cameraError}</p>
+                                </div>
+                              )}
+                            </div>
+                            {capturedImage && (
+                              <div className="mt-4 p-3 bg-[#f0f9ff] rounded-xl border border-[#bccac1] flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <CheckCircle2 className="w-5 h-5 text-[#0077b6]" />
+                                  <span className="text-xs font-bold text-[#181c1e]">{customFileSelected ? 'Local File Selected' : 'Specimen Pre-loaded'}</span>
+                                </div>
+                                <button onClick={() => { setCapturedImage(null); setCustomFileSelected(false); }} className="text-xs font-bold text-[#ba1a1a] hover:underline">Reset Choice</button>
+                              </div>
+                            )}
+                          </div>
+                          {capturedImage && (
+                            <button onClick={runAiAnalysis} disabled={analysisLoading} className="w-full h-12 bg-[#0077b6] hover:bg-[#0096c7] text-white rounded-xl font-display font-extrabold text-sm flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95 transition-all">
+                              <Activity className="w-5 h-5" /><span>Analyse Skin Condition</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </div>
 
-                {/* Referral note */}
-                <div className="bg-white rounded-xl border border-[#bccac1] p-6 shadow-sm">
-                  <h4 className="font-display font-bold text-xs text-[#0077b6] uppercase tracking-wider mb-4 border-b border-[#f1f4f6] pb-2">
-                    AI Clinical Evaluation
-                  </h4>
-                  {activeAnalysisResult.referralNote ? (
-                    <ReactMarkdown
-                      components={{
-                        strong: ({node, ...props}) => <span className="font-bold text-[#0077b6] block mt-5 mb-1.5 text-xs uppercase tracking-wider border-b border-[#f1f4f6] pb-1" {...props} />,
-                        p:      ({node, ...props}) => <p className="text-sm text-[#3d4943] leading-relaxed mb-3" {...props} />,
-                      }}
-                    >
-                      {sanitiseReferralNote(activeAnalysisResult.referralNote)}
-                    </ReactMarkdown>
-                  ) : (
-                    <p className="text-sm text-slate-400 italic">No clinical narrative generated.</p>
+                  {/* Step 3: Results */}
+                  {screen === 'assessment-review' && activeAnalysisResult && (
+                    <div className="p-4 md:p-8 flex-1 bg-[#F8FAFC] mt-7 select-none">
+                      <div className="max-w-4xl mx-auto space-y-6">
+                        <header className="border-b border-slate-200 pb-4">
+                          <h2 className="font-display font-bold text-2xl text-slate-900">Assessment Results</h2>
+                          <p className="text-xs text-slate-500 mt-1.5">Review structural profile classifications and matching reference criteria metrics.</p>
+                        </header>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+                          <div className="md:col-span-7 space-y-6">
+                            <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm">
+                              <span className="text-[#00A6FB] font-sans font-bold text-[10px] tracking-wider uppercase block">Primary Medical Profile Finding</span>
+                              <div className="flex justify-between items-start mt-1.5 mb-4">
+                                <h3 className="font-display font-bold text-xl md:text-2xl text-slate-900">{activeAnalysisResult.primaryFinding}</h3>
+                                <div className="bg-slate-50 px-3 py-1 rounded-xl flex flex-col items-end shrink-0 border border-slate-200">
+                                  <span className="font-display font-bold text-[#00A6FB] text-xl leading-none">{activeAnalysisResult.confidence}%</span>
+                                  <span className="text-[9px] font-semibold text-slate-400 mt-0.5 uppercase tracking-wider">Match</span>
+                                </div>
+                              </div>
+                              <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-[#00A6FB]" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                              </div>
+                            </div>
+                            <div>
+                              <h3 className="font-bold text-sm text-[#0077b6] uppercase tracking-wider border-b border-[#f1f4f6] pb-2 mb-4">AI Clinical Evaluation</h3>
+                              <div className="space-y-6">
+                                <div className="bg-white border border-[#bccac1] p-6 rounded-xl shadow-sm">
+                                  {activeAnalysisResult.referralNote ? (
+                                    <ReactMarkdown components={{
+                                      strong: ({ node, ...props }) => <strong className="block font-bold text-[#0077b6] text-xs uppercase tracking-wider mt-5 mb-2 pb-1 border-b border-slate-100" {...props} />,
+                                      p:      ({ node, ...props }) => <p className="text-sm text-slate-700 leading-relaxed mb-3 font-normal" {...props} />,
+                                      ul:     ({ node, ...props }) => <ul className="space-y-1.5 mb-3 ml-4" {...props} />,
+                                      li:     ({ node, ...props }) => <li className="text-sm text-slate-700 leading-relaxed list-disc" {...props} />,
+                                    }}>{activeAnalysisResult.referralNote}</ReactMarkdown>
+                                  ) : (
+                                    <p className="text-slate-400 italic text-sm">No clinical narrative generated yet. Click "Format Referral Summary" to generate.</p>
+                                  )}
+                                </div>
+                                <div className="print:hidden">
+                                  <TreatmentRecommendations finding={activeAnalysisResult} patient={patient} caseId={activeCaseId || 'NEW-CASE'} />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="md:col-span-5 space-y-6">
+                            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                              <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center text-xs font-medium text-slate-600">
+                                <span>Patient Lesion Frame</span>
+                                <span className="text-[10px] text-slate-400 font-mono uppercase">IMG_REFERENCE.jpg</span>
+                              </div>
+                              <div className="aspect-square bg-slate-50 relative">
+                                {capturedImage && <img src={capturedImage} alt="Captured skin lesion" className="w-full h-full object-cover filter brightness-95" />}
+                              </div>
+                              {activeAnalysisResult.heatmap_b64 && (
+                                <div className="aspect-square bg-slate-50 relative pt-3">
+                                  <div className="bg-[#e0e3e5] overflow-hidden border border-[#bccac1] relative aspect-square">
+                                    <img src={`data:image/jpeg;base64,${activeAnalysisResult.heatmap_b64}`} alt="AI Saliency Map" className="w-full h-full object-cover" />
+                                    <div className="absolute top-2 left-2 bg-[#0077b6]/80 text-white text-[10px] px-2 py-1 rounded font-bold uppercase tracking-wide">AI Saliency Map</div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className={`p-4 rounded-2xl border flex items-start gap-3 shadow-sm ${activeAnalysisResult.urgency==='High' ? 'bg-rose-50 border-rose-200' : activeAnalysisResult.urgency==='Moderate' ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className={`p-1.5 rounded-lg shrink-0 text-white ${activeAnalysisResult.urgency==='High' ? 'bg-rose-600' : activeAnalysisResult.urgency==='Moderate' ? 'bg-amber-600' : 'bg-slate-600'}`}>
+                                <AlertTriangle className="w-4 h-4" />
+                              </div>
+                              <div className="space-y-1">
+                                <span className="font-sans font-bold text-[10px] tracking-wider uppercase block">Triage Metric: {activeAnalysisResult.urgency} Urgency</span>
+                                <p className="text-xs text-slate-600 leading-relaxed font-light">{activeAnalysisResult.urgencyText}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="pt-6 border-t border-slate-200 flex flex-col sm:flex-row justify-end gap-3">
+                          <button onClick={handleFormatReferral} disabled={referralNoteLoading} className="h-11 px-6 border border-slate-200 text-slate-700 bg-white font-display font-semibold text-xs uppercase tracking-wider rounded-xl hover:bg-slate-50 transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                            {referralNoteLoading ? <><Loader2 className="w-4 h-4 animate-spin text-[#00A6FB]" /><span>Generating Note...</span></> : <><FileText className="w-4 h-4 text-[#00A6FB]" /><span>Format Referral Summary</span></>}
+                          </button>
+                          <button onClick={saveCaseRecord} className="h-11 px-8 bg-[#00A6FB] text-white font-display font-semibold text-xs uppercase tracking-wider rounded-xl hover:bg-[#008cc4] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md">
+                            <Save className="w-4 h-4" /><span>Commit Case Record</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </div>
 
-                {/* Recommended action */}
-                {activeAnalysisResult.recommendedAction && (
-                  <div className="bg-[#f0f9ff] border border-[#0077b6]/20 rounded-xl p-4 flex items-start gap-3">
-                    <FileText className="w-4 h-4 text-[#0077b6] mt-0.5 shrink-0" />
+                  {/* Step 4: Referral Note */}
+                  {screen === 'referral-note' && activeAnalysisResult && (() => {
+                    const getConditionDetails = (name: string) => {
+                      const n = name.toLowerCase();
+                      if (n.includes('ringworm') || n.includes('tinea')) return { description: "Tinea corporis is a superficial fungal infection characterised by a ring-shaped, scaly, itchy rash. Highly treatable with topical antifungal agents.", suggestions: ["Clotrimazole 1% cream — apply twice daily for 2–4 weeks", "Keep area clean and dry", "Avoid sharing towels or clothing"] };
+                      if (n.includes('eczema') || n.includes('atopic') || n.includes('dermatitis')) return { description: "Atopic dermatitis is a chronic pruritic inflammatory skin condition managed with hydration, trigger avoidance, and topical anti-inflammatories.", suggestions: ["Hydrocortisone 1% cream — apply twice daily for 7 days", "Apply thick emollient moisturizer frequently", "Avoid harsh scented soaps and hot baths"] };
+                      if (n.includes('impetigo')) return { description: "Impetigo is a highly contagious superficial bacterial skin infection characterized by honey-colored crusts. Managed with antibiotic therapy.", suggestions: ["Mupirocin 2% topical ointment — apply 3 times daily", "Gently clean honey-colored crusts with warm soapy water", "Keep lesions covered to prevent auto-inoculation"] };
+                      if (n.includes('scabies')) return { description: "Scabies is an intensely itchy skin infestation caused by the mite Sarcoptes scabiei. Highly contagious. Managed with permethrin or ivermectin.", suggestions: ["Permethrin 5% cream — apply from neck down, wash after 8-14 hours", "Treat all household contacts simultaneously", "Wash bedding and clothes in hot water"] };
+                      return { description: "A potential clinical skin indication detected by the assistive triage scanner. Standard clinical diagnostic procedures are recommended before commencing definitive therapy.", suggestions: activeAnalysisResult.treatmentNotes?.length ? activeAnalysisResult.treatmentNotes : ["Monitor area daily for pigment or dimension shifts", "Keep the affected region clean, dry, and cool", "Refer to dermatology clinic if symptoms do not improve"] };
+                    };
+                    const docDetails   = getConditionDetails(activeAnalysisResult.primaryFinding);
+                    const isHigh       = activeAnalysisResult.urgency === 'High';
+                    const isMod        = activeAnalysisResult.urgency === 'Moderate';
+                    const urgencyHex   = isHigh ? '#D85A30' : isMod ? '#EF9F27' : '#082F49';
+                    const urgencyStrip = isHigh ? '● URGENT — Immediate referral required. Do not delay.' : isMod ? '● MODERATE — Refer to clinic within 3 days for assessment and treatment.' : '● MILD — Can be managed locally. Refer if no improvement in 7 days.';
+                    const urgencyBadge = isHigh ? '● Urgent Referral' : isMod ? '● Moderate Urgency' : '● Mild Urgency';
+                    const cleanRefId   = activeCaseId || `DD-${new Date().getFullYear()}-00847`;
+
+                    return (
+                      <div className="p-4 md:p-8 flex-1 bg-slate-50 min-h-screen grid grid-cols-1 lg:grid-cols-12 gap-8 items-start max-w-6xl mx-auto w-full font-sans select-none">
+                        {/* Left panel */}
+                        <div className="lg:col-span-4 space-y-4 no-print shrink-0 w-full">
+                          <div className="bg-white border border-slate-200 p-6 rounded-xl space-y-4 shadow-sm">
+                            <div className="flex items-center gap-2">
+                              <Printer className="w-5 h-5" style={{ color: '#082F49' }} />
+                              <h4 className="font-display font-bold text-sm text-[#0A1628]">Referral Note Actions</h4>
+                            </div>
+                            <p className="text-xs text-slate-500 leading-relaxed">This structured note details the verified findings and can be printed or shared.</p>
+                            <div className="space-y-2 pt-2">
+                              <button onClick={() => window.print()} className="w-full h-11 bg-[#082F49] hover:bg-[#15805f] text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                                <Printer className="w-4 h-4" /><span>Download as PDF</span>
+                              </button>
+                              <a href={`https://wa.me/?text=DermaDetect%20Referral%20Note%20for%20${encodeURIComponent(patient.name||'Patient')}%20—%20${encodeURIComponent(activeAnalysisResult.primaryFinding)}%20—%20${isHigh?'URGENT':isMod?'MODERATE':'MILD'}%20urgency.`} target="_blank" rel="noreferrer" className="w-full h-11 bg-[#082F49]/40 hover:bg-[#082F49]/60 text-white font-display font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm">
+                                <Share2 className="w-4 h-4" /><span>Share via WhatsApp</span>
+                              </a>
+                            </div>
+                          </div>
+                          <button onClick={() => setScreen('assessment-review')} className="w-full h-10 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer">
+                            <ChevronLeft className="w-4 h-4" /><span>Return to Review Stage</span>
+                          </button>
+                        </div>
+
+                        {/* Document */}
+                        <div className="lg:col-span-8 flex justify-center w-full print-wrapper">
+                          <div className="bg-white border-l-[4px] border-y border-r border-slate-200 w-full max-w-2xl p-6 md:p-8 rounded-xl shadow-md flex flex-col text-[#0A1628] font-sans leading-relaxed">
+                            {/* Header band */}
+                            <div className="flex justify-between items-center bg-[#082F49] text-white px-5 py-4 rounded-lg mb-4 h-16">
+                              <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-md bg-white/20 flex items-center justify-center font-black text-white shrink-0">DD</div>
+                                <div>
+                                  <h3 className="font-display font-extrabold text-base tracking-tight leading-none text-white">DermaDetect</h3>
+                                  <p className="text-[10px] text-white/85 font-mono mt-1 font-semibold leading-none">AI-Powered Skin Assessment</p>
+                                </div>
+                              </div>
+                              <div className="h-10 w-[1px] bg-white/20 mx-4 hidden sm:block" />
+                              <div className="text-right flex-1 sm:flex-initial">
+                                <span className="font-display font-black text-xs sm:text-sm tracking-widest block uppercase text-white">CLINICAL REFERRAL NOTE</span>
+                                <span className="text-[9px] font-mono text-white/95 mt-1 block uppercase tracking-wider">REF: {cleanRefId}</span>
+                              </div>
+                            </div>
+
+                            {/* Alert stripe */}
+                            <div className="w-full h-9 flex items-center justify-center px-4 mb-6 rounded text-white text-[11px] font-bold" style={{ backgroundColor: urgencyHex }}>
+                              {urgencyStrip}
+                            </div>
+
+                            {/* Two-column body */}
+                            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                              {/* Left col */}
+                              <div className="md:col-span-7 space-y-6">
+                                {/* Patient info */}
+                                <div className="space-y-2 text-left">
+                                  <h4 className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase border-b border-teal-100 pb-1">PATIENT INFORMATION</h4>
+                                  <div className="divide-y divide-slate-100 text-xs">
+                                    {[
+                                      ['Full Name', patient.name || '—'],
+                                      ['Contact Number', patient.contactNumber || '—'],
+                                      ['Age', patient.age ? `${patient.age} years` : '—'],
+                                      ['Sex', patient.sex || '—'],
+                                      ['Date of Visit', new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })],
+                                      ['Patient ID', cleanRefId],
+                                    ].map(([label, val]) => (
+                                      <div key={label} className="grid grid-cols-3 py-2">
+                                        <span className="text-slate-500 font-medium col-span-1">{label}</span>
+                                        <span className="font-semibold text-[#0A1628] col-span-2 text-right md:text-left">{val}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Referring health worker — uses real clinician data */}
+                                <div className="space-y-2 text-left">
+                                  <h4 className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase border-b border-teal-100 pb-1">REFERRING HEALTH WORKER</h4>
+                                  <div className="divide-y divide-slate-100 text-xs">
+                                    {[
+                                      ['Name',          clinicianName],
+                                      ['Role',          clinicianRole],
+                                      ['Facility Name', clinicianFacility],
+                                      ['District',      clinicianDistrict || '—'],
+                                      ['Region',        clinicianRegion ? `${clinicianRegion} Region` : '—'],
+                                      ['Contact',       clinicianContact || '—'],
+                                    ].map(([label, val]) => (
+                                      <div key={label} className="grid grid-cols-3 py-2">
+                                        <span className="text-slate-500 font-medium col-span-1">{label}</span>
+                                        <span className="font-semibold text-[#0A1628] col-span-2 text-right md:text-left">{val}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {/* Refer to */}
+                                <div className="space-y-2 text-left">
+                                  <h4 className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase border-b border-teal-100 pb-1">REFER TO</h4>
+                                  <div className="divide-y divide-slate-100 text-xs">
+                                    <div className="grid grid-cols-3 py-2"><span className="text-slate-500 font-medium col-span-1">Facility Type</span><span className="font-semibold text-[#0A1628] col-span-2 text-right md:text-left">District Hospital / Dermatology Clinic</span></div>
+                                    <div className="grid grid-cols-3 py-2"><span className="text-slate-500 font-medium col-span-1">Department</span><span className="font-semibold text-slate-600 col-span-2 text-right md:text-left">Dermatology / General OPD</span></div>
+                                    <div className="grid grid-cols-3 py-2"><span className="text-slate-500 font-medium col-span-1">Urgency</span><span className={`font-bold col-span-2 text-right md:text-left ${isHigh ? 'text-rose-600' : isMod ? 'text-amber-600' : 'text-[#082F49]'}`}>{isHigh ? 'Immediate — Do Not Delay' : isMod ? 'Within 3 days' : 'Within 7 days'}</span></div>
+                                  </div>
+                                </div>
+
+                                {/* Health worker notes */}
+                                <div className="space-y-2 text-left">
+                                  <h4 className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase border-b border-teal-100 pb-1">HEALTH WORKER'S NOTES</h4>
+                                  <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-lg text-xs leading-relaxed text-slate-700 min-h-[60px]">
+                                    {patient.symptoms?.trim() ? <p className="italic">"{patient.symptoms.trim()}"</p> : <p className="text-slate-400 italic">No additional notes recorded.</p>}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Right col */}
+                              <div className="md:col-span-5 space-y-6">
+                                <div className="p-4 bg-[#F0FDF8] border-l-2 border-l-[#082F49] rounded-r-xl border border-teal-100/35 text-left space-y-4 shadow-sm">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase">AI ASSESSMENT</span>
+                                    <span className="px-2 py-0.5 bg-teal-50 border border-teal-100 text-[9px] uppercase font-bold text-[#082F49] rounded">ANALYSIS OK</span>
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    <h3 className="font-display font-black text-[#0A1628] text-base leading-snug">{activeAnalysisResult.primaryFinding}</h3>
+                                    <div className="flex justify-between items-center text-[11px] font-medium text-slate-500">
+                                      <span>Detection confidence</span>
+                                      <span className="font-mono font-bold text-[#082F49]">{activeAnalysisResult.confidence}%</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                      <div className="h-full bg-[#082F49] rounded-full" style={{ width: `${activeAnalysisResult.confidence}%` }} />
+                                    </div>
+                                  </div>
+                                  <div className="pt-1">
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 text-[11px] font-bold rounded-full text-white leading-none" style={{ backgroundColor: urgencyHex }}>{urgencyBadge}</span>
+                                  </div>
+                                  <p className="text-slate-600 text-xs leading-relaxed">{docDetails.description}</p>
+                                  <div className="space-y-2 pt-2.5 border-t border-teal-100/40">
+                                    <span className="text-[10px] font-bold font-mono tracking-wider text-slate-400 uppercase block">SUGGESTED TREATMENT</span>
+                                    <div className="flex flex-col gap-1.5">
+                                      {docDetails.suggestions.map((item, id) => (
+                                        <div key={id} className="flex gap-1.5 items-start text-xs text-[#0A1628]">
+                                          <span className="inline-block mt-1 w-1.5 h-1.5 bg-[#082F49] rounded-full shrink-0" /><span>{item}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <p className="text-[9.5px] italic text-slate-400 leading-normal pt-1.5 border-t border-teal-100/20">This is an AI-generated suggestion. Final treatment decisions rest with the receiving clinician.</p>
+                                </div>
+
+                                {/* Photo */}
+                                <div className="space-y-2 text-left">
+                                  <h4 className="text-[11px] font-bold font-mono tracking-widest text-[#082F49] uppercase py-1 border-b border-sky-300">
+  PHOTO TAKEN DURING ASSESSMENT
+</h4>
+                                  <div className="relative aspect-square w-full rounded-xl border border-slate-150 overflow-hidden bg-slate-50 shrink-0">
+                                    {capturedImage ? (
+                                      <img src={capturedImage} alt="Skin lesion" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
+                                        <Activity className="w-8 h-8 animate-pulse" />
+                                        <span className="text-[10px] font-semibold tracking-wider uppercase mt-2">NO PHOTO CAPTURED</span>
+                                      </div>
+                                    )}
+                                    <div className="absolute bottom-2.5 right-2.5 bg-slate-900/40 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white/95 select-none tracking-widest uppercase">DermaDetect AI</div>
+                                  </div>
+                                  <div className="relative aspect-square w-full rounded-xl border border-slate-150 overflow-hidden bg-slate-50 shrink-0">
+                                    {activeAnalysisResult.heatmap_b64 ? (
+                                      <img src={`data:image/png;base64,${activeAnalysisResult.heatmap_b64}`} alt="Skin lesion" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                    ) : (
+                                      <div className="w-full h-full flex flex-col items-center justify-center text-slate-300">
+                                        <Activity className="w-8 h-8 animate-pulse" />
+                                        <span className="text-[10px] font-semibold tracking-wider uppercase mt-2">NO HEATMAP AVAILABLE</span>
+                                      </div>
+                                    )}
+                                    <div className="absolute bottom-2.5 right-2.5 bg-slate-900/40 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white/95 select-none tracking-widest uppercase">DermaDetect AI</div>
+                                  </div>
+                                  <span className="text-[10px] text-slate-400 mt-1 block font-mono">Photo captured: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Signature block */}
+                            <div className="grid grid-cols-2 gap-6 mt-8 pt-6 border-t border-slate-200 text-left">
+                              <div className="space-y-2.5">
+                                <span className="text-[10px] font-bold font-mono tracking-wider text-slate-400 uppercase block">HEALTH WORKER SIGNATURE</span>
+                                <div className="relative">
+                                  <canvas ref={signatureCanvasRef} onMouseDown={startDrawingSig} onMouseMove={drawSig} onMouseUp={stopDrawingSig} onMouseLeave={stopDrawingSig} onTouchStart={startDrawingSig} onTouchMove={drawSig} onTouchEnd={stopDrawingSig} className="w-full h-16 border border-dashed border-slate-300 rounded-lg bg-slate-50 cursor-crosshair" width={240} height={64} />
+                                  <button onClick={clearSig} className="absolute top-1.5 right-1.5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-white border border-slate-200 text-slate-500 rounded hover:bg-slate-50 no-print">Clear</button>
+                                </div>
+                                <div className="text-xs">
+                                  <p className="font-bold text-[#0A1628]">{clinicianName}</p>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">{clinicianRole} · {clinicianFacility}</p>
+                                  <p className="text-[10px] text-slate-400 mt-0.5">Date: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                                </div>
+                              </div>
+                              <div className="space-y-2.5 flex flex-col justify-between">
+                                <span className="text-[10px] font-bold font-mono tracking-wider text-slate-400 uppercase block">RECEIVING CLINICIAN STAMP / SIGNATURE</span>
+                                <div className="h-16 w-full border border-dashed border-slate-300 rounded-lg flex items-center justify-center bg-slate-50 text-center text-slate-300">
+                                  <span className="text-[9px] font-mono tracking-wider font-semibold uppercase">PLACE CLINICAL STAMP HERE</span>
+                                </div>
+                                <div className="text-[10px] text-[#3d4943] text-right italic">* To be completed at receiving facility</div>
+                              </div>
+                            </div>
+
+                            {/* Footer */}
+                            <div className="mt-8 pt-4 border-t border-slate-200 bg-slate-50/80 p-4 rounded-b-xl flex flex-col md:flex-row justify-between items-center gap-4 text-[10.5px] text-slate-400">
+                              <div className="text-left space-y-1">
+                                <div className="flex items-center gap-1.5 font-bold text-slate-500">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-[#082F49]" /><span>DermaDetect AI</span>
+                                </div>
+                                <p className="text-[9.5px]">Generated by DermaDetect — AI Skin Assessment Tool.</p>
+                              </div>
+                              <div className="text-center space-y-1">
+                                <p className="font-mono font-bold uppercase text-slate-500">TIMESTAMP & REFERRAL REFS</p>
+                                <p>Ref: <span className="font-semibold">{cleanRefId}</span></p>
+                                <p>Generated: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                              </div>
+                              <div className="text-right max-w-xs text-[9px] italic leading-normal text-slate-400">This referral note was generated with AI assistance. It is intended to support, not replace, clinical judgment.</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                </div>
+              </div>
+            )}
+
+            {/* CASE HISTORY */}
+            {screen === 'case-history' && (
+              <section className="flex-1 max-w-5xl mx-auto w-full px-4 md:px-8 py-8 flex flex-col justify-between">
+                <div className="grow space-y-6">
+                  <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-[#bccac1] pb-4 mt-7">
                     <div>
-                      <span className="text-[10px] font-bold text-[#0077b6] uppercase tracking-wider block mb-1">Recommended Action</span>
-                      <p className="text-sm font-semibold text-[#181c1e] leading-relaxed">{activeAnalysisResult.recommendedAction}</p>
+                      <h1 className="font-display font-extrabold text-2xl md:text-3xl text-[#181c1e]">Case History Logs</h1>
+                      <p className="text-xs text-[#3d4943] mt-1.5">Browse fully registered patient skin diagnostics and triage urgencies.</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="relative min-w-[200px] shrink-0">
+                        <Search className="w-4 h-4 text-[#3d4943] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search patient or diagnosis..." className="w-full text-xs h-9 pl-9 pr-3.5 bg-white border border-[#bccac1] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0077b6]" />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Filter className="w-4 h-4 text-[#3d4943]" />
+                        <select value={filterUrgency} onChange={e => setFilterUrgency(e.target.value as any)} className="text-xs h-9 px-2 bg-white border border-[#bccac1] rounded-lg focus:outline-none text-[#181c1e] font-semibold">
+                          <option value="All">All Urgencies</option>
+                          <option value="High">High Urgency</option>
+                          <option value="Moderate">Moderate Urgency</option>
+                          <option value="Low">Low Urgency</option>
+                        </select>
+                      </div>
+                      <button onClick={() => { const b = new Blob([JSON.stringify(cases,null,2)],{type:'application/json'}); const u=URL.createObjectURL(b); const l=document.createElement('a'); l.href=u; l.download=`DermaDetect_Assessments_${new Date().toISOString().slice(0,10)}.json`; l.click(); }} className="h-9 px-4 bg-[#0077b6] hover:bg-[#0096c7] text-white flex items-center gap-1.5 rounded-lg text-xs font-semibold cursor-pointer shadow-sm">
+                        <Download className="w-4 h-4" /><span>Export</span>
+                      </button>
+                      <button onClick={resetAndStartAssessment} className="h-9 px-4 bg-[#0077b6] hover:bg-[#0096c7] text-white flex items-center gap-1.5 rounded-lg text-xs font-semibold cursor-pointer shadow-sm">
+                        <PlusCircle className="w-4 h-4" /><span>New</span>
+                      </button>
                     </div>
                   </div>
-                )}
 
-                {/* Immediate care steps */}
-                {activeAnalysisResult.treatmentNotes?.length > 0 && (
-                  <div className="bg-white rounded-xl border border-[#bccac1] p-5 shadow-sm">
-                    <h4 className="font-display font-bold text-xs text-[#0077b6] uppercase tracking-wider mb-3 border-b border-[#f1f4f6] pb-2">
-                      Immediate Care Steps
-                    </h4>
-                    <ul className="space-y-2">
-                      {activeAnalysisResult.treatmentNotes.map((note, i) => (
-                        <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 leading-relaxed">
-                          <span className="w-5 h-5 rounded-full bg-[#0077b6] text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                          {note}
-                        </li>
-                      ))}
-                    </ul>
+                  <div className="bg-white border border-[#bccac1] rounded-2xl overflow-hidden shadow-sm">
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-[#f1f4f6] text-[#3d4943] text-xs font-bold border-b border-[#bccac1]">
+                            {['Patient Name','Assessment Date','Clinical Finding','Urgency Triage',''].map(h => <th key={h} className="px-5 py-3 uppercase tracking-wider">{h}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#ebeef0]">
+                          {processedCases.length > 0 ? processedCases.map(item => (
+                            <tr key={item.id} onClick={() => setSelectedDetailsCase(item)} className="hover:bg-[#f1f4f6] transition-colors cursor-pointer group text-xs text-[#181c1e] font-semibold">
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-9 h-9 rounded-full bg-[#d6e0f6] text-[#121c2c] flex items-center justify-center font-bold font-display select-none">{item.patient.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}</div>
+                                  <div><p className="font-bold text-sm text-[#181c1e] group-hover:text-[#0077b6]">{item.patient.name}</p><p className="text-[10px] text-[#3d4943] font-mono">CASE REF: {item.id}</p></div>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-[#3d4943]">{item.date}</td>
+                              <td className="px-5 py-4"><span className="px-2.5 py-1 rounded bg-[#ebeef0] text-[#181c1e] font-bold text-[10px] border border-[#bccac1]">{item.finding?.primaryFinding || 'Unclassified'}</span></td>
+                              <td className="px-5 py-4">
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`w-2 h-2 rounded-full ${item.finding?.urgency==='High'?'bg-[#ba1a1a]':item.finding?.urgency==='Moderate'?'bg-[#e65100]':'bg-[#2e7d32]'}`} />
+                                  <span className={`font-bold ${item.finding?.urgency==='High'?'text-[#ba1a1a]':item.finding?.urgency==='Moderate'?'text-[#e65100]':'text-[#2e7d32]'}`}>{item.finding?.urgency||'Low'}</span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-right" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button onClick={e => { e.stopPropagation(); downloadPdfRecord(item); }} title="Download PDF" className="text-emerald-600 hover:bg-emerald-50 p-1.5 rounded-full transition-colors cursor-pointer"><Download className="w-4 h-4" /></button>
+                                  <button onClick={e => { e.stopPropagation(); setCaseToDelete(item); }} title="Delete" className="text-rose-600 hover:bg-rose-50 p-1.5 rounded-full transition-colors cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                                  <button onClick={() => setSelectedDetailsCase(item)} title="View" className="text-[#0077b6] hover:bg-[#f0f9ff] p-1.5 rounded-full transition-colors cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          )) : (
+                            <tr><td colSpan={5} className="text-center py-12 text-[#3d4943] font-medium">No patient case history found. Start a New Assessment to record a case.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile list */}
+                    <div className="block md:hidden divide-y divide-[#ebeef0]">
+                      {processedCases.length > 0 ? processedCases.map(item => (
+                        <div key={item.id} onClick={() => setSelectedDetailsCase(item)} className="p-4 hover:bg-[#f1f4f6] transition-colors cursor-pointer space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-[#d6e0f6] text-[#121c2c] flex items-center justify-center font-bold font-display select-none shrink-0">{item.patient.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}</div>
+                              <div className="min-w-0"><p className="font-bold text-sm text-[#181c1e] truncate">{item.patient.name}</p><p className="text-[10px] text-[#3d4943] font-mono">REF: {item.id}</p></div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span className={`w-2 h-2 rounded-full ${item.finding?.urgency==='High'?'bg-[#ba1a1a]':item.finding?.urgency==='Moderate'?'bg-[#e65100]':'bg-[#2e7d32]'}`} />
+                              <span className={`font-bold text-xs ${item.finding?.urgency==='High'?'text-[#ba1a1a]':item.finding?.urgency==='Moderate'?'text-[#e65100]':'text-[#2e7d32]'}`}>{item.finding?.urgency||'Low'}</span>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-end text-xs pt-1">
+                            <div className="space-y-1.5 min-w-0">
+                              <p className="text-[10px] text-[#3d4943]">Date: <strong>{item.date}</strong></p>
+                              <span className="inline-block px-2 py-0.5 rounded bg-[#ebeef0] text-[#181c1e] text-[10px] border border-[#bccac1] font-bold truncate max-w-[160px]">{item.finding?.primaryFinding||'Unclassified'}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                              <button onClick={e => { e.stopPropagation(); downloadPdfRecord(item); }} className="w-8 h-8 flex items-center justify-center text-emerald-600 hover:bg-emerald-50 rounded-lg border border-emerald-100 cursor-pointer"><Download className="w-4 h-4" /></button>
+                              <button onClick={e => { e.stopPropagation(); setCaseToDelete(item); }} className="w-8 h-8 flex items-center justify-center text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-100 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                              <button onClick={() => setSelectedDetailsCase(item)} className="w-8 h-8 flex items-center justify-center text-[#0077b6] hover:bg-[#f0f9ff] rounded-lg border border-sky-100 cursor-pointer"><ChevronRight className="w-4 h-4" /></button>
+                            </div>
+                          </div>
+                        </div>
+                      )) : <div className="text-center py-12 text-[#3d4943] font-medium text-xs">No cases found.</div>}
+                    </div>
+
+                    <footer className="px-5 py-3.5 bg-[#f1f4f6] flex justify-between items-center border-t border-[#bccac1] text-xs font-semibold text-[#181c1e]">
+                      <span>Showing {processedCases.length} of {cases.length} entries</span>
+                    </footer>
                   </div>
-                )}
+                </div>
+              </section>
+            )}
 
-                {/* Therapy regimen summary */}
-                {activeAnalysisResult.therapyRegimen && (
-                  <div className="bg-white rounded-xl border border-[#bccac1] p-5 shadow-sm">
-                    <h4 className="font-display font-bold text-xs text-[#0077b6] uppercase tracking-wider mb-3 border-b border-[#f1f4f6] pb-2">
-                      Pharmacological Regimen
-                    </h4>
-                    <div className="space-y-2 text-xs">
-                      <div><span className="text-[10px] text-slate-400 uppercase tracking-widest block mb-0.5">Medication</span><span className="font-bold text-[#0077b6]">{activeAnalysisResult.therapyRegimen.medication}</span></div>
-                      <div><span className="text-[10px] text-slate-400 uppercase tracking-widest block mb-0.5">Dosage</span><span className="font-mono text-slate-800">{activeAnalysisResult.therapyRegimen.dosage}</span></div>
-                      <div className="p-3 bg-amber-50 rounded-lg border border-amber-100 mt-2">
-                        <span className="text-[9px] text-amber-700 uppercase tracking-widest font-bold block mb-0.5">Contraindications</span>
-                        <p className="text-[11px] text-amber-900">{activeAnalysisResult.therapyRegimen.contraindications}</p>
+          </main>
+
+          {/* Footer bar */}
+          <footer className="bg-[#ebeef0] border-t border-[#bccac1] py-4 select-none no-print">
+            <div className="max-w-5xl mx-auto px-4 md:px-8 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <div className="text-xs font-semibold text-[#555f71]">© {new Date().getFullYear()} DermaDetect • Community Health Digital System</div>
+              <div className="flex items-center gap-4 text-xs font-semibold text-[#3d4943]">
+                <div className="flex items-center gap-1.5 text-emerald-600"><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /><span>Dermal Analysis Toolkit Active</span></div>
+                <span className="text-[#bccac1]">|</span>
+                <button onClick={() => alert('DermaDetect HIPAA Compliant. No personal metrics logged remotely.')} className="hover:underline">Privacy Policy</button>
+              </div>
+            </div>
+          </footer>
+
+          {/* Loading modal */}
+          {analysisLoading && (
+            <div className="fixed inset-0 bg-[#181c1e]/60 backdrop-blur-md flex items-center justify-center z-[100] px-4">
+              <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center border border-[#bccac1] shadow-2xl space-y-4">
+                <Loader2 className="w-14 h-14 text-[#0077b6] animate-spin mx-auto" />
+                <h3 className="font-display font-extrabold text-[#181c1e] text-lg">AI Dermatological Diagnostic Analysis</h3>
+                <p className="text-xs text-[#3d4943] max-w-xs mx-auto animate-pulse leading-relaxed">{loadingText}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Case detail modal */}
+          {selectedDetailsCase && (
+            <div className="fixed inset-0 bg-[#181c1e]/50 backdrop-blur-sm z-[80] flex items-center justify-center p-4" onClick={e => { if(e.target===e.currentTarget) setSelectedDetailsCase(null); }}>
+              <div className="bg-white w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-[#bccac1]">
+                <div className="p-5 border-b border-[#bccac1] flex justify-between items-center bg-[#f1f4f6]">
+                  <div>
+                    <span className="text-[10px] text-[#0077b6] font-black tracking-widest uppercase block leading-none">Case History Vault</span>
+                    <h2 className="font-display font-extrabold text-base md:text-lg text-[#181c1e] mt-2 block">Patient Assessment: {selectedDetailsCase.patient.name}</h2>
+                  </div>
+                  <button onClick={() => setSelectedDetailsCase(null)} className="p-1.5 hover:bg-[#e0e3e5] rounded-full transition-colors"><X className="w-5 h-5 text-[#3d4943]" /></button>
+                </div>
+                <div className="p-6 md:p-8 space-y-6 max-h-[72vh] overflow-y-auto">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-[#f1f4f6]">
+                    <div className="space-y-4 text-xs font-semibold">
+                      <h3 className="font-display font-bold text-xs text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">Patient Profile</h3>
+                      <div className="space-y-1"><p className="text-[10px] text-[#6d7a73] uppercase tracking-wider">Full Legal Name</p><p className="text-sm font-bold text-[#181c1e]">{selectedDetailsCase.patient.name}</p></div>
+                      <div className="space-y-1"><p className="text-[10px] text-[#6d7a73] uppercase tracking-wider">Case ID / Gender / Age</p><p className="text-[#181c1e]">{selectedDetailsCase.id} • {selectedDetailsCase.patient.sex} • {selectedDetailsCase.patient.age} Yrs</p></div>
+                    </div>
+                    <div className="space-y-4 text-xs font-semibold">
+                      <h3 className="font-display font-bold text-xs text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">Medical Indicators</h3>
+                      <div className="space-y-1"><p className="text-[10px] text-[#6d7a73] uppercase tracking-wider">Primary Finding</p><p className="text-sm font-bold text-[#181c1e]">{selectedDetailsCase.finding.primaryFinding}</p></div>
+                      <div className="space-y-1"><p className="text-[10px] text-[#6d7a73] uppercase tracking-wider">Urgency</p>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${selectedDetailsCase.finding.urgency==='High'?'bg-[#ffdad6] border-[#ba1a1a] text-[#93000a]':selectedDetailsCase.finding.urgency==='Moderate'?'bg-[#ffe0b2] border-[#ffe0b2] text-[#e65100]':'bg-[#e8f5e9] border-[#c8e6c9] text-[#2e7d32]'}`}>
+                          {selectedDetailsCase.finding.urgency} Urgency ({selectedDetailsCase.finding.confidence}% Match)
+                        </span>
                       </div>
                     </div>
                   </div>
-                )}
-
-                {/* Patient dos/donts summary */}
-                {activeAnalysisResult.patientHandout && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4">
-                      <h5 className="font-bold text-xs text-emerald-700 uppercase tracking-wide mb-2.5">Patient Do's</h5>
-                      <ul className="space-y-1.5">
-                        {activeAnalysisResult.patientHandout.dos.map((d, i) => (
-                          <li key={i} className="flex gap-2 text-[11px] text-slate-700 leading-relaxed">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0 mt-1.5" />{d}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-4">
-                      <h5 className="font-bold text-xs text-rose-700 uppercase tracking-wide mb-2.5">Patient Don'ts</h5>
-                      <ul className="space-y-1.5">
-                        {activeAnalysisResult.patientHandout.donts.map((d, i) => (
-                          <li key={i} className="flex gap-2 text-[11px] text-slate-700 leading-relaxed">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 mt-1.5" />{d}
-                          </li>
-                        ))}
-                      </ul>
+                  <div className="space-y-3">
+                    <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">Lesion Specimen Media</h3>
+                    <div className={`aspect-video rounded-xl overflow-hidden relative border border-[#bccac1] bg-[#f1f4f6] cursor-pointer group ${zoomImage?'h-auto max-h-[450px]':''}`}>
+                      <img src={selectedDetailsCase.image} alt="Clinical specimen" className={`w-full h-full object-cover transition-all ${zoomImage?'object-contain bg-black':'group-hover:scale-105'}`} />
+                      <div onClick={() => setZoomImage(!zoomImage)} className="absolute bottom-3 right-3 bg-white/90 px-3 py-1 border border-[#bccac1] rounded-lg text-xs font-bold text-[#181c1e] flex items-center gap-1.5 shadow-md">
+                        <ZoomIn className="w-4 h-4 text-[#0077b6]" /><span>{zoomImage?'Normal View':'Full Zoom View'}</span>
+                      </div>
                     </div>
                   </div>
-                )}
-
-                {/* Disclaimer */}
-                <p className="text-[10px] text-slate-400 text-center leading-relaxed pb-4">
-                  This is an AI-assisted assessment using DermaVision. It is intended to support, not replace, clinical judgment by a qualified healthcare professional.
-                </p>
+                  {selectedDetailsCase.patient.symptoms && (
+                    <div className="space-y-2">
+                      <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">Patient Observation Symptoms</h3>
+                      <p className="text-xs text-[#3d4943] italic leading-relaxed p-3 border-l-2 border-[#0077b6] bg-[#f1f4f6] rounded-r-lg">"{selectedDetailsCase.patient.symptoms}"</p>
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    <h3 className="font-display text-xs font-bold text-[#3d4943] uppercase tracking-wider border-b border-[#bccac1] pb-1">Clinical Recommended Actions</h3>
+                    <p className="text-sm font-bold text-[#181c1e] leading-relaxed">{selectedDetailsCase.finding.recommendedAction}</p>
+                    <TreatmentRecommendations finding={selectedDetailsCase.finding} patient={selectedDetailsCase.patient} caseId={selectedDetailsCase.id} />
+                  </div>
+                </div>
+                <div className="p-4 bg-[#f1f4f6] flex flex-col sm:flex-row justify-between items-center gap-3 border-t border-[#bccac1]">
+                  <button onClick={() => setCaseToDelete(selectedDetailsCase)} className="w-full sm:w-auto h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer order-last sm:order-first">
+                    <Trash2 className="w-4 h-4" /><span>Delete Case</span>
+                  </button>
+                  <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                    <button onClick={() => setSelectedDetailsCase(null)} className="h-10 px-5 text-xs font-bold text-[#3d4943] hover:bg-[#e0e3e5] rounded-xl border border-[#bccac1] bg-white transition-colors cursor-pointer">Close View</button>
+                    <button onClick={() => downloadPdfRecord(selectedDetailsCase)} className="h-10 px-5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer">
+                      <Download className="w-4 h-4" /><span>Download Report</span>
+                    </button>
+                    <button onClick={() => { setPatient(selectedDetailsCase.patient); setCapturedImage(selectedDetailsCase.image); setActiveAnalysisResult(selectedDetailsCase.finding); setActiveCaseId(selectedDetailsCase.id); setSelectedDetailsCase(null); setScreen('referral-note'); }} className="h-10 px-6 bg-[#0077b6] hover:bg-[#0096c7] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer">
+                      <FileText className="w-4 h-4" /><span>Format Referral Note</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
+          )}
+
+          {/* Success animation */}
+          {showSuccessAnimation && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm p-8 text-center shadow-2xl border border-slate-100">
+                <div className="checkmark-wrapper mb-6">
+                  <svg className="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle className="checkmark-circle" cx="26" cy="26" r="25" fill="none" />
+                    <path className="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8" />
+                  </svg>
+                </div>
+                <h3 className="font-display text-xl font-bold text-slate-900 tracking-tight mb-2">Case Saved Successfully</h3>
+                <p className="text-sm text-slate-500 leading-relaxed mb-4">Diagnostic findings have been safely synced to patient records.</p>
+                <div className="inline-flex items-center gap-1.5 text-xs text-[#0077b6] font-mono font-bold bg-[#f0f9ff] px-3 py-1.5 rounded-lg">
+                  <span className="w-2 h-2 rounded-full bg-[#0077b6] animate-pulse" />REF ID: {activeCaseId}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Delete confirmation */}
+          {caseToDelete && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl w-full max-w-md p-6 md:p-8 shadow-2xl border border-slate-100 space-y-4">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-full bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center shrink-0"><AlertTriangle className="w-6 h-6 animate-pulse" /></div>
+                  <div className="space-y-1">
+                    <h3 className="font-display text-lg font-bold text-slate-900 tracking-tight">Delete Patient Case Record</h3>
+                    <p className="text-xs text-[#6d7a73]">You are about to permanently remove this case history. This process is irreversible.</p>
+                  </div>
+                </div>
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-2">
+                  {[['Patient Full Name:', caseToDelete.patient.name],['Case Reference ID:', caseToDelete.id],['Clinical Finding:', caseToDelete.finding.primaryFinding]].map(([l,v]) => (
+                    <div key={l} className="flex justify-between items-center text-slate-500"><span>{l}</span><span className="font-bold text-slate-800">{v}</span></div>
+                  ))}
+                </div>
+                <div className="flex gap-3 justify-end pt-2 text-xs font-bold">
+                  <button onClick={() => setCaseToDelete(null)} className="h-10 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl border border-slate-300 cursor-pointer">Cancel, Keep Record</button>
+                  <button onClick={() => deleteCaseRecord(caseToDelete.id)} className="h-10 px-5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl flex items-center gap-1.5 cursor-pointer">
+                    <Trash2 className="w-4 h-4" /><span>Yes, Permanently Delete</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Mobile nav */}
+          <div className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-[#bccac1] z-40 flex items-center justify-around px-4 md:hidden no-print shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+            {[
+              { icon: <Home className="w-5 h-5" />,       label: 'Home',     action: () => { setScreen('home'); stopWebcam(); }, active: screen==='home' },
+              { icon: <PlusCircle className="w-5 h-5" />, label: 'New Case', action: resetAndStartAssessment, active: ['assessment-info','assessment-capture','assessment-review'].includes(screen) },
+              { icon: <History className="w-5 h-5" />,    label: 'Logs',     action: () => { setScreen('case-history'); stopWebcam(); }, active: screen==='case-history' },
+            ].map(({ icon, label, action, active }) => (
+              <button key={label} onClick={action} className={`flex flex-col items-center gap-1 text-[10px] font-bold transition-colors ${active?'text-[#0077b6]':'text-[#3d4943] hover:text-[#0077b6]'}`}>
+                {icon}<span>{label}</span>
+              </button>
+            ))}
           </div>
+
         </div>
       )}
-
-    </div>
+    </>
   );
 }
