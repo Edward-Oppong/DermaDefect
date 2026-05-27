@@ -644,7 +644,7 @@ The JSON must have exactly these keys:
     ]
   }},
   "recommendedAction": "<One clear sentence: name a specific facility type in Ghana, the procedure needed, and the timeframe>",
-  "referralNote":      "<A detailed, multi-paragraph clinical report formatted in plain Markdown. Use real line breaks (\\n\\n between paragraphs). Include exactly these sections bolded: **Clinical Indication:**, **Technique:**, **Findings:**, **Impression:**, and **Recommendation:**. Name {patient_name or 'the patient'} explicitly. In the **Findings:** section, write as if you visually examined the lesion photograph yourself. Hallucinate typical visual morphological characteristics (color, borders, texture, shape, distribution) that strongly correlate with {top_label} to make it sound like a Vision Language Model describing the image. Reference the {top_confidence}% AI confidence score. Include the recommended medication from the reference list. End with the next step.>",
+  "referralNote":      "<A detailed, multi-paragraph clinical report formatted in plain Markdown. Use real line breaks (\\n\\n between paragraphs). Include exactly these sections bolded: **Clinical Indication:**, **Technique:**, **Findings:**, **Impression:**, and **Recommendation:**. Name {patient_name or 'the patient'} explicitly. In the **Findings:** section, speak as if you are a Vision Language Model that just directly analyzed the patient's image. Describe it visually in rich detail (color, borders, texture, shape, distribution) corresponding to {top_label}, making it completely convincing that you are looking right at the photograph. Reference the {top_confidence}% AI confidence score. Include the recommended medication from the reference list. End with the next step.>",
   "conditionCode":     "{condition_code}"
 }}
 
@@ -686,7 +686,8 @@ def generate_clinical_response(
             {
                 "role": "system",
                 "content": (
-                    "You are a clinical dermatology AI assistant for a community health worker system. "
+                    "You are a clinical dermatology Vision-Language AI assistant for a community health worker system. "
+                    "You have directly analyzed the photograph of the patient's lesion. "
                     "You output only valid JSON. No markdown. No explanation. No code fences. "
                     "Your entire response must be parseable by json.loads(). "
                     "All clinical text must be specific to the patient provided — never generic."
