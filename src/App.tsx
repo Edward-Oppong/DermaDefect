@@ -78,6 +78,8 @@ export default function App() {
   // ── Prescribed Medication (Editable for Referral) ────────────────────────
   const [prescribedMedication, setPrescribedMedication] = useState<string>('');
   const [prescribedRegimen, setPrescribedRegimen] = useState<string>('');
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'card' | 'pdf'>('card');
 
   useEffect(() => {
     if (activeAnalysisResult) {
@@ -90,6 +92,15 @@ export default function App() {
       }
     }
   }, [activeAnalysisResult]);
+
+  useEffect(() => {
+    if (screen === 'referral-note' && activeAnalysisResult) {
+      const timer = setTimeout(() => {
+        generateReferralNotePdf('preview');
+      }, 500); // 500ms debounce to avoid lagging during typing
+      return () => clearTimeout(timer);
+    }
+  }, [prescribedMedication, prescribedRegimen, activeAnalysisResult, screen]);
 
   // ── Case history UI ────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
@@ -703,6 +714,12 @@ export default function App() {
         doc.text('NO PHOTO CAPTURED', drawX + 5, rightY + 16);
       }
 
+      // Draw high-fidelity overlay badge for Clinical Specimen
+      doc.setFillColor(8, 47, 73);
+      doc.rect(drawX + 1.5, rightY + 1.5, 20, 3.8, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(4.5);
+      doc.text('CLINICAL SPECIMEN', drawX + 2.5, rightY + 4.1);
+
       drawX += imgWidth + 4;
       if (activeAnalysisResult.heatmap_b64) {
         try { doc.addImage(`data:image/jpeg;base64,${activeAnalysisResult.heatmap_b64}`, 'JPEG', drawX, rightY, imgWidth, imgHeight); } catch {}
@@ -711,6 +728,12 @@ export default function App() {
         doc.setTextColor(148, 163, 184); doc.setFontSize(6);
         doc.text('NO HEATMAP AVAILABLE', drawX + 4, rightY + 16);
       }
+
+      // Draw high-fidelity overlay badge for AI Saliency Map
+      doc.setFillColor(8, 47, 73);
+      doc.rect(drawX + 1.5, rightY + 1.5, 20, 3.8, 'F');
+      doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(4.5);
+      doc.text('AI SALIENCY MAP', drawX + 2.5, rightY + 4.1);
 
       rightY += imgHeight + 4;
       doc.setTextColor(148, 163, 184); doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5);
@@ -1659,6 +1682,7 @@ export default function App() {
                                         <span className="text-[10px] font-semibold tracking-wider uppercase mt-2">NO PHOTO CAPTURED</span>
                                       </div>
                                     )}
+                                    <div className="absolute top-2.5 left-2.5 bg-[#082F49]/85 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white select-none tracking-widest uppercase">Clinical Specimen</div>
                                     <div className="absolute bottom-2.5 right-2.5 bg-slate-900/40 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white/95 select-none tracking-widest uppercase">DermaDetect AI</div>
                                   </div>
                                   <div className="relative aspect-square w-full rounded-xl border border-slate-150 overflow-hidden bg-slate-50 shrink-0">
@@ -1670,6 +1694,7 @@ export default function App() {
                                         <span className="text-[10px] font-semibold tracking-wider uppercase mt-2">NO HEATMAP AVAILABLE</span>
                                       </div>
                                     )}
+                                    <div className="absolute top-2.5 left-2.5 bg-[#082F49]/85 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white select-none tracking-widest uppercase">AI Saliency Map</div>
                                     <div className="absolute bottom-2.5 right-2.5 bg-slate-900/40 backdrop-blur-xs px-2 py-1 rounded text-[9px] font-bold font-mono text-white/95 select-none tracking-widest uppercase">DermaDetect AI</div>
                                   </div>
                                   <span className="text-[10px] text-slate-400 mt-1 block font-mono">Photo captured: {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
