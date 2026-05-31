@@ -28,7 +28,8 @@ COPY backend/ ./backend/
 
 # ---- Prepare Node.js & React Frontend ----
 COPY package*.json ./
-RUN npm ci
+# Force installation of devDependencies (Vite, esbuild, typescript) for building, even if NODE_ENV=production
+RUN npm ci --include=dev
 
 COPY . .
 # Build both the Vite frontend and bundle the Express server
