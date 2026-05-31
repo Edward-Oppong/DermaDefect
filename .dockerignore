@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.sixth
+backend/derma
+backend/staticfiles
+backend/staticfiles.json
+dermavision.db
+*.db
+backend/model/dermavision.onnx
+.env
+.env.*

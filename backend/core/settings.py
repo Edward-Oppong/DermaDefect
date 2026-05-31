@@ -29,7 +29,7 @@ ROOT_URLCONF = 'core.urls'
 
 TEMPLATES = [{
     'BACKEND': 'django.template.backends.django.DjangoTemplates',
-    'DIRS': [BASE_DIR / 'templates'],
+    'DIRS': [BASE_DIR / 'templates'] if (BASE_DIR / 'templates').exists() else [],
     'APP_DIRS': True,
     'OPTIONS': {
         'context_processors': [
@@ -42,7 +42,8 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {}
 
 STATIC_URL   = '/static/'
-STATICFILES_DIRS = [BASE_DIR / 'static']
+STATICFILES_DIRS = [BASE_DIR / 'static'] if (BASE_DIR / 'static').exists() else []
+
 STATIC_ROOT  = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
