@@ -1,4 +1,15 @@
+---
+title: DermaDetect
+emoji: 🔬
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # DermaDefect | Point-of-Care Clinical Skin Diagnostics
+
 
 **DermaDefect** is a specialized, lightweight clinical reference interface designed for frontline health workers and primary care clinicians. It provides an immediate, privacy-focused environment to document patient skin pathologies, perform diagnostic reference mapping, and generate structured clinical referral reports at the point of care.
 
