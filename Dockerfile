@@ -25,7 +25,6 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir gunicorn
 
 COPY backend/ ./backend/
-RUN cd backend && python manage.py collectstatic --noinput
 
 # ---- Prepare Node.js & React Frontend ----
 COPY package*.json ./
