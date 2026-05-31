@@ -145,13 +145,17 @@ class _InferenceEngine:
 
             top_class = int(np.argmax(logits[0]))
             w, h      = original_size
-            ph = pw   = _SIZE // 14
 
-            importance = np.zeros((ph, pw), dtype=np.float32)
+            # Use a coarse 4x4 grid (16 inferences) instead of the full 16x16
+            # DINOv2 patch grid (256 inferences). Each coarse cell covers a
+            # 56x56 pixel block. The result is bicubic-upsampled to full res.
+            COARSE = 4
+            cell   = _SIZE // COARSE  # 56px per cell
+            importance = np.zeros((COARSE, COARSE), dtype=np.float32)
 
             def process_patch(row, col):
-                r0, r1 = row * 14, (row + 1) * 14
-                c0, c1 = col * 14, (col + 1) * 14
+                r0, r1 = row * cell, (row + 1) * cell
+                c0, c1 = col * cell, (col + 1) * cell
                 masked = pixel_values.copy()
                 masked[:, :, r0:r1, c0:c1] = 0.0
                 masked_logits = _engine._session.run(
@@ -159,10 +163,10 @@ class _InferenceEngine:
                 )[0]
                 return row, col, float(logits[0][top_class] - masked_logits[0][top_class])
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
                 futures = [
                     executor.submit(process_patch, r, c)
-                    for r in range(ph) for c in range(pw)
+                    for r in range(COARSE) for c in range(COARSE)
                 ]
                 for future in concurrent.futures.as_completed(futures):
                     r, c, val = future.result()
