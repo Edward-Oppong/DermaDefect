@@ -1,5 +1,5 @@
-# Use a Node image with Debian Bookworm as the base (includes Python 3.11 support)
-FROM node:20-bookworm-slim
+# Use Python 3.11-slim as the robust base image
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -8,23 +8,24 @@ ENV PORT=7860
 
 WORKDIR /app
 
-# Install Python, pip, virtualenv, and system dependencies for OpenCV
+# Install system dependencies, curl, OpenCV support, and Node.js 20
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-venv \
+    curl \
     libglib2.0-0 \
     libgl1 \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- Prepare Django Backend ----
+# ---- Prepare Django Python Backend ----
 COPY backend/requirements.txt ./backend/requirements.txt
-RUN python3 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir -r ./backend/requirements.txt
+# Upgrade pip and install requirements + gunicorn directly in container
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r ./backend/requirements.txt \
+    && pip install --no-cache-dir gunicorn
 
 COPY backend/ ./backend/
-RUN cd backend && python3 manage.py collectstatic --noinput
+RUN cd backend && python manage.py collectstatic --noinput
 
 # ---- Prepare Node.js & React Frontend ----
 COPY package*.json ./
