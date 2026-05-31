@@ -6,6 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
 
+# HF model repo where dermavision.onnx is stored (override with --build-arg)
+ARG HF_MODEL_REPO=WilfredAyine/dermavision-onnx
+
 WORKDIR /app
 
 # Install system dependencies, curl, OpenCV support, Node.js 20,
@@ -26,9 +29,20 @@ COPY backend/requirements.txt ./backend/requirements.txt
 # Upgrade pip and install requirements + gunicorn directly in container
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r ./backend/requirements.txt \
-    && pip install --no-cache-dir gunicorn
+    && pip install --no-cache-dir gunicorn huggingface_hub
 
 COPY backend/ ./backend/
+
+# ---- Download ONNX model from Hugging Face Hub ----
+# The model is too large for git — it lives in a dedicated HF model repo.
+RUN python3 -c "
+from huggingface_hub import hf_hub_download
+import shutil, pathlib
+dst = pathlib.Path('/app/backend/model')
+dst.mkdir(parents=True, exist_ok=True)
+path = hf_hub_download(repo_id='${HF_MODEL_REPO}', filename='dermavision.onnx', local_dir=str(dst))
+print(f'Model downloaded to {path}')
+"
 
 # ---- Prepare Node.js & React Frontend ----
 COPY package*.json ./
