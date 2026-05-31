@@ -92,16 +92,6 @@ export default function App() {
       }
     }
   }, [activeAnalysisResult]);
-
-  useEffect(() => {
-    if (screen === 'referral-note' && activeAnalysisResult) {
-      const timer = setTimeout(() => {
-        generateReferralNotePdf('preview');
-      }, 500); // 500ms debounce to avoid lagging during typing
-      return () => clearTimeout(timer);
-    }
-  }, [prescribedMedication, prescribedRegimen, activeAnalysisResult, screen]);
-
   // ── Case history UI ────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [filterUrgency, setFilterUrgency] = useState<'All' | 'High' | 'Moderate' | 'Low'>('All');
