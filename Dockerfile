@@ -8,11 +8,15 @@ ENV PORT=7860
 
 WORKDIR /app
 
-# Install system dependencies, curl, OpenCV support, and Node.js 20
+# Install system dependencies, curl, OpenCV support, Node.js 20,
+# and native build tools required by better-sqlite3 (node-gyp)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     libglib2.0-0 \
     libgl1 \
+    build-essential \
+    python3-dev \
+    libsqlite3-dev \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
